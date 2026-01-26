@@ -29,6 +29,30 @@ services:
     # Override command to use the container's IP
     command: ["python", "mock_marstek.py", "--ip", "172.28.0.20"]
 
+  mock-marstek-2:
+    build:
+      context: ../tools/mock_device
+      dockerfile: Dockerfile
+    container_name: marstek-mock-device-2
+    environment:
+      - MOCK_IP=172.28.0.21
+    networks:
+      marstek_net:
+        ipv4_address: 172.28.0.21
+    command: ["python", "mock_marstek.py", "--ip", "172.28.0.21", "--ble-mac", "009b08a5bb40", "--wifi-mac", "7483c2315cf9", "--soc", "75"]
+
+  mock-marstek-3:
+    build:
+      context: ../tools/mock_device
+      dockerfile: Dockerfile
+    container_name: marstek-mock-device-3
+    environment:
+      - MOCK_IP=172.28.0.22
+    networks:
+      marstek_net:
+        ipv4_address: 172.28.0.22
+    command: ["python", "mock_marstek.py", "--ip", "172.28.0.22", "--ble-mac", "009b08a5cc41", "--wifi-mac", "7483c2315cfa", "--soc", "30"]
+
 networks:
   marstek_net:
     driver: bridge
