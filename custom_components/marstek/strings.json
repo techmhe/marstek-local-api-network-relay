@@ -1,0 +1,175 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Device is already configured",
+      "invalid_discovery_info": "Invalid discovery information received from the device"
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the device",
+      "device_not_found": "Device not found at the specified IP address",
+      "discovery_failed": "Failed to discover devices. Please check your network connection and try again.",
+      "no_devices_found": "No Marstek devices found on the network. Please ensure your device is powered on and connected to the same network, then submit to retry.",
+      "invalid_discovery_info": "Invalid discovery information received from the device"
+    },
+    "step": {
+      "user": {
+        "data": {
+          "device": "Select device"
+        },
+        "data_description": {
+          "device": "Choose the Marstek device you want to add"
+        },
+        "description": "Select your Marstek energy storage device from the discovered devices",
+        "title": "Marstek energy storage"
+      },
+      "manual": {
+        "title": "Manual device setup",
+        "description": "No devices were discovered automatically. Enter the IP address of your Marstek device manually. Make sure the device has Open API enabled in the Marstek app.",
+        "data": {
+          "host": "IP address",
+          "port": "Port"
+        },
+        "data_description": {
+          "host": "IP address of your Marstek device",
+          "port": "UDP port (default: 30000)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery_level": {
+        "name": "Battery level"
+      },
+      "grid_power": {
+        "name": "Grid power"
+      },
+      "device_mode": {
+        "name": "Device mode"
+      },
+      "battery_status": {
+        "name": "Battery status"
+      },
+      "wifi_rssi": {
+        "name": "WiFi signal strength"
+      },
+      "ct_connection": {
+        "name": "CT connection"
+      },
+      "battery_temperature": {
+        "name": "Battery temperature"
+      },
+      "grid_total_power": {
+        "name": "Grid total power"
+      },
+      "phase_a_power": {
+        "name": "Phase A power"
+      },
+      "phase_b_power": {
+        "name": "Phase B power"
+      },
+      "phase_c_power": {
+        "name": "Phase C power"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Operating mode",
+        "state": {
+          "auto": "Auto",
+          "ai": "AI",
+          "manual": "Manual",
+          "passive": "Passive"
+        }
+      }
+    }
+  },
+  "services": {
+    "set_passive_mode": {
+      "name": "Set passive mode",
+      "description": "Set the device to passive mode with specified power and duration. Negative power charges the battery, positive power discharges.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The Marstek device to control"
+        },
+        "power": {
+          "name": "Power",
+          "description": "Target power in watts. Negative values charge the battery, positive values discharge."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Duration in seconds for the passive mode operation."
+        }
+      }
+    },
+    "set_manual_schedule": {
+      "name": "Set manual schedule",
+      "description": "Configure a manual schedule slot for automatic charge/discharge operations.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The Marstek device to control"
+        },
+        "schedule_slot": {
+          "name": "Schedule slot",
+          "description": "Schedule slot number (0-9). Each slot can have independent settings."
+        },
+        "start_time": {
+          "name": "Start time",
+          "description": "Start time for the schedule"
+        },
+        "end_time": {
+          "name": "End time",
+          "description": "End time for the schedule"
+        },
+        "power": {
+          "name": "Power",
+          "description": "Target power in watts. Negative values charge the battery, positive values discharge."
+        },
+        "days": {
+          "name": "Days",
+          "description": "Days of the week when this schedule is active"
+        },
+        "enable": {
+          "name": "Enable",
+          "description": "Whether this schedule slot is enabled"
+        }
+      }
+    },
+    "clear_manual_schedules": {
+      "name": "Clear manual schedules",
+      "description": "Clear all manual schedule slots on the device.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The Marstek device to clear schedules from"
+        }
+      }
+    },
+    "set_manual_schedules": {
+      "name": "Set multiple manual schedules",
+      "description": "Configure multiple manual mode schedules using YAML for the selected battery.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The Marstek device to control"
+        },
+        "schedules": {
+          "name": "Schedules",
+          "description": "List of schedules to configure. Each item must include schedule_slot, start_time, end_time, and optionally days, power, and enable."
+        }
+      }
+    },
+    "request_data_sync": {
+      "name": "Request data sync",
+      "description": "Trigger an immediate data refresh from the Marstek device.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The Marstek device to refresh. When omitted, all devices are refreshed."
+        }
+      }
+    }
+  }
+}

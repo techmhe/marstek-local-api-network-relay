@@ -1,0 +1,422 @@
+"""Tests for Marstek services."""
+
+from __future__ import annotations
+
+from datetime import time
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.marstek.const import DOMAIN
+from custom_components.marstek.services import (
+    ATTR_DEVICE_ID,
+    ATTR_DAYS,
+    ATTR_DURATION,
+    ATTR_ENABLE,
+    ATTR_END_TIME,
+    ATTR_POWER,
+    ATTR_SCHEDULE_SLOT,
+    ATTR_SCHEDULES,
+    ATTR_START_TIME,
+    SERVICE_CLEAR_MANUAL_SCHEDULES,
+    SERVICE_REQUEST_DATA_SYNC,
+    SERVICE_SET_MANUAL_SCHEDULE,
+    SERVICE_SET_MANUAL_SCHEDULES,
+    SERVICE_SET_PASSIVE_MODE,
+    _calculate_week_set,
+    _parse_time_string,
+)
+
+from tests.conftest import create_mock_client, patch_marstek_integration
+
+
+def test_calculate_week_set() -> None:
+    """Test _calculate_week_set helper function."""
+    # Test individual days (mon=1, tue=2, wed=4, thu=8, fri=16, sat=32, sun=64)
+    assert _calculate_week_set(["mon"]) == 1
+    assert _calculate_week_set(["sun"]) == 64
+    assert _calculate_week_set(["sat"]) == 32
+
+    # Test all days (1+2+4+8+16+32+64 = 127)
+    all_days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    assert _calculate_week_set(all_days) == 127
+
+    # Test mixed case (1+2+4 = 7)
+    assert _calculate_week_set(["Mon", "TUE", "wed"]) == 7
+
+    # Test empty and invalid
+    assert _calculate_week_set([]) == 0
+    assert _calculate_week_set(["invalid"]) == 0
+
+
+def test_parse_time_string() -> None:
+    """Test _parse_time_string helper function."""
+    # Standard HH:MM format
+    assert _parse_time_string("08:00") == "08:00"
+    assert _parse_time_string("23:59") == "23:59"
+    assert _parse_time_string("00:00") == "00:00"
+
+    # HH:MM:SS format (seconds ignored)
+    assert _parse_time_string("08:00:00") == "08:00"
+    assert _parse_time_string("14:30:45") == "14:30"
+
+    # Padding for single digits
+    assert _parse_time_string("8:5") == "08:05"
+
+    # Invalid format should raise
+    with pytest.raises(ValueError, match="Invalid time format"):
+        _parse_time_string("invalid")
+
+
+@pytest.mark.asyncio
+async def test_set_passive_mode_service(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test set_passive_mode service."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert mock_config_entry.state == ConfigEntryState.LOADED
+
+        # Get device ID from registry
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        )
+        assert device is not None
+
+        # Call service
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_PASSIVE_MODE,
+            {
+                ATTR_DEVICE_ID: device.id,
+                ATTR_POWER: 2500,
+                ATTR_DURATION: 7200,
+            },
+            blocking=True,
+        )
+
+        # Verify command was sent
+        assert client.pause_polling.call_count >= 1
+        assert client.send_request.call_count >= 1
+        assert client.resume_polling.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_set_manual_schedule_service(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test set_manual_schedule service."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert mock_config_entry.state == ConfigEntryState.LOADED
+
+        # Get device ID
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        )
+        assert device is not None
+
+        # Call service
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_MANUAL_SCHEDULE,
+            {
+                ATTR_DEVICE_ID: device.id,
+                ATTR_SCHEDULE_SLOT: 0,
+                ATTR_START_TIME: time(7, 0),
+                ATTR_END_TIME: time(22, 0),
+                ATTR_POWER: 3000,
+                ATTR_DAYS: ["mon", "tue", "wed"],
+                ATTR_ENABLE: True,
+            },
+            blocking=True,
+        )
+
+        # Verify command was sent
+        assert client.send_request.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_clear_manual_schedules_service(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test clear_manual_schedules service."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert mock_config_entry.state == ConfigEntryState.LOADED
+
+        # Get device ID
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        )
+        assert device is not None
+
+        # Call service
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CLEAR_MANUAL_SCHEDULES,
+            {
+                ATTR_DEVICE_ID: device.id,
+            },
+            blocking=True,
+        )
+
+        # Verify commands were sent (10 slots cleared)
+        assert client.send_request.call_count >= 10
+
+
+@pytest.mark.asyncio
+async def test_service_invalid_device_id(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test service with invalid device ID raises error."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        # Call service with invalid device ID
+        with pytest.raises(HomeAssistantError, match="Device not found"):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_SET_PASSIVE_MODE,
+                {
+                    ATTR_DEVICE_ID: "invalid_device_id",
+                    ATTR_POWER: 1000,
+                },
+                blocking=True,
+            )
+
+
+@pytest.mark.asyncio
+async def test_service_command_failure_retries(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test service retries on command failure."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client()
+    # Setup succeeds (first call), then 2 failures + 1 success for retries
+    client.send_request = AsyncMock(
+        side_effect=[
+            {"result": {}},  # Setup call succeeds
+            TimeoutError("timeout"),  # First service attempt fails
+            TimeoutError("timeout"),  # Second attempt fails
+            {"result": {}},  # Third attempt succeeds
+        ]
+    )
+
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        )
+        assert device is not None
+
+        # Should succeed after retries
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_PASSIVE_MODE,
+            {
+                ATTR_DEVICE_ID: device.id,
+                ATTR_POWER: 1000,
+            },
+            blocking=True,
+        )
+
+        # Should have called: 1 setup + 3 retries = 4 total
+        assert client.send_request.call_count == 4
+
+
+@pytest.mark.asyncio
+async def test_service_command_all_retries_fail(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test service raises error when all retries fail."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client()
+    # Setup succeeds, then all service attempts fail
+    call_count = 0
+
+    async def send_request_side_effect(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:  # First call is during setup
+            return {"result": {}}
+        raise TimeoutError("timeout")  # All service calls fail
+
+    client.send_request = AsyncMock(side_effect=send_request_side_effect)
+
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        )
+        assert device is not None
+
+        with pytest.raises(HomeAssistantError, match="Failed to send command"):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_SET_PASSIVE_MODE,
+                {
+                    ATTR_DEVICE_ID: device.id,
+                    ATTR_POWER: 1000,
+                },
+                blocking=True,
+            )
+
+
+@pytest.mark.asyncio
+async def test_set_manual_schedules_service(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test set_manual_schedules (batch) service."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert mock_config_entry.state == ConfigEntryState.LOADED
+
+        # Get device ID
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        )
+        assert device is not None
+
+        # Call service with multiple schedules
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_MANUAL_SCHEDULES,
+            {
+                ATTR_DEVICE_ID: device.id,
+                ATTR_SCHEDULES: [
+                    {
+                        ATTR_SCHEDULE_SLOT: 0,
+                        ATTR_START_TIME: "08:00",
+                        ATTR_END_TIME: "16:00",
+                        ATTR_POWER: -2000,
+                        ATTR_DAYS: ["mon", "tue", "wed", "thu", "fri"],
+                        ATTR_ENABLE: True,
+                    },
+                    {
+                        ATTR_SCHEDULE_SLOT: 1,
+                        ATTR_START_TIME: "18:00",
+                        ATTR_END_TIME: "22:00",
+                        ATTR_POWER: 800,
+                        ATTR_ENABLE: True,
+                    },
+                ],
+            },
+            blocking=True,
+        )
+
+        # Verify commands were sent (1 for setup + 2 for schedules)
+        assert client.send_request.call_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_request_data_sync_service_single_device(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test request_data_sync service for a single device."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert mock_config_entry.state == ConfigEntryState.LOADED
+
+        # Get device ID
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        )
+        assert device is not None
+
+        # Mock the coordinator's async_request_refresh to verify it's called
+        coordinator = mock_config_entry.runtime_data.coordinator
+        with patch.object(
+            coordinator, "async_request_refresh", new_callable=AsyncMock
+        ) as mock_refresh:
+            # Call service
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REQUEST_DATA_SYNC,
+                {
+                    ATTR_DEVICE_ID: device.id,
+                },
+                blocking=True,
+            )
+
+            # Verify coordinator refresh was requested
+            mock_refresh.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_request_data_sync_service_all_devices(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test request_data_sync service for all devices (no device_id)."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert mock_config_entry.state == ConfigEntryState.LOADED
+
+        # Mock the coordinator's async_request_refresh to verify it's called
+        coordinator = mock_config_entry.runtime_data.coordinator
+        with patch.object(
+            coordinator, "async_request_refresh", new_callable=AsyncMock
+        ) as mock_refresh:
+            # Call service without device_id to refresh all
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REQUEST_DATA_SYNC,
+                {},
+                blocking=True,
+            )
+
+            # Verify coordinator refresh was requested
+            mock_refresh.assert_called_once()

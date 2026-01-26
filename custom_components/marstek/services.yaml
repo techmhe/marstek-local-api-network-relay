@@ -1,0 +1,172 @@
+# Marstek service definitions
+set_passive_mode:
+  name: Set Passive Mode
+  description: Set the device to passive mode with specified power and duration. Negative power charges the battery, positive power discharges.
+  fields:
+    device_id:
+      name: Battery
+      description: Select the Marstek battery to control.
+      required: true
+      selector:
+        device:
+          integration: marstek
+    power:
+      name: Power
+      description: Target power in watts. Negative values charge the battery, positive values discharge. Range -5000W to 5000W.
+      required: true
+      default: 0
+      selector:
+        number:
+          min: -5000
+          max: 5000
+          step: 100
+          unit_of_measurement: W
+          mode: slider
+    duration:
+      name: Duration
+      description: Duration in seconds for the passive mode operation. Default is 1 hour (3600 seconds).
+      required: false
+      default: 3600
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 60
+          unit_of_measurement: seconds
+          mode: box
+
+set_manual_schedule:
+  name: Set Manual Schedule
+  description: Configure a manual schedule slot for automatic charge/discharge operations.
+  fields:
+    device_id:
+      name: Battery
+      description: Select the Marstek battery to control.
+      required: true
+      selector:
+        device:
+          integration: marstek
+    schedule_slot:
+      name: Schedule Slot
+      description: Schedule slot number (0-9). Each slot can have independent settings.
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 9
+          mode: box
+    start_time:
+      name: Start Time
+      description: Start time for the schedule
+      required: true
+      selector:
+        time:
+    end_time:
+      name: End Time
+      description: End time for the schedule
+      required: true
+      selector:
+        time:
+    power:
+      name: Power
+      description: Target power in watts. Negative values charge the battery, positive values discharge.
+      required: true
+      default: 0
+      selector:
+        number:
+          min: -5000
+          max: 5000
+          step: 100
+          unit_of_measurement: W
+          mode: slider
+    days:
+      name: Days
+      description: Days of the week when this schedule is active
+      required: false
+      default:
+        - mon
+        - tue
+        - wed
+        - thu
+        - fri
+        - sat
+        - sun
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Monday
+              value: mon
+            - label: Tuesday
+              value: tue
+            - label: Wednesday
+              value: wed
+            - label: Thursday
+              value: thu
+            - label: Friday
+              value: fri
+            - label: Saturday
+              value: sat
+            - label: Sunday
+              value: sun
+    enable:
+      name: Enable
+      description: Whether this schedule slot is enabled
+      required: false
+      default: true
+      selector:
+        boolean:
+
+clear_manual_schedules:
+  name: Clear Manual Schedules
+  description: Clear all manual schedule slots on the device.
+  fields:
+    device_id:
+      name: Battery
+      description: Select the Marstek battery to clear schedules from.
+      required: true
+      selector:
+        device:
+          integration: marstek
+
+set_manual_schedules:
+  name: Set Multiple Manual Schedules
+  description: Configure multiple manual mode schedules using YAML for the selected battery.
+  fields:
+    device_id:
+      name: Battery
+      description: Select the Marstek battery to control.
+      required: true
+      selector:
+        device:
+          integration: marstek
+    schedules:
+      name: Schedules
+      description: List of schedules to configure (YAML list). Each item must include schedule_slot, start_time, end_time, and optionally days, power, and enable.
+      required: true
+      example: |
+        - schedule_slot: 0
+          start_time: "08:00"
+          end_time: "16:00"
+          days: ["mon", "tue", "wed", "thu", "fri"]
+          power: -2000
+          enable: true
+        - schedule_slot: 1
+          start_time: "18:00"
+          end_time: "22:00"
+          power: 800
+      selector:
+        object:
+
+request_data_sync:
+  name: Request Data Sync
+  description: Trigger an immediate data refresh from the Marstek device.
+  fields:
+    device_id:
+      name: Battery
+      description: The Marstek battery to refresh. When omitted, all devices are refreshed.
+      required: false
+      selector:
+        device:
+          integration: marstek
