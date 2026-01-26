@@ -338,6 +338,7 @@ class MarstekUDPClient:
         include_em: bool = True,
         include_bat: bool = True,
         delay_between_requests: float = 2.0,
+        previous_status: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Get complete device status including battery, PV, WiFi, and EM data.
         
@@ -353,6 +354,8 @@ class MarstekUDPClient:
             include_em: Whether to include Energy Meter/CT data
             include_bat: Whether to include detailed battery data
             delay_between_requests: Delay between requests in seconds
+            previous_status: Previous device status to preserve values when 
+                individual requests fail (prevents intermittent "Unknown" states)
             
         Returns:
             Dictionary with complete device status
@@ -476,6 +479,7 @@ class MarstekUDPClient:
                 _LOGGER.debug("Bat.GetStatus failed for %s: %s", device_ip, err)
         
         # Merge data (ES.GetStatus has priority for battery data)
+        # Pass previous_status to preserve values when individual requests fail
         loop = self._loop or asyncio.get_running_loop()
         return merge_device_status(
             es_mode_data=es_mode_data,
@@ -486,4 +490,5 @@ class MarstekUDPClient:
             bat_status_data=bat_status_data,
             device_ip=device_ip,
             last_update=loop.time(),
+            previous_status=previous_status,
         )

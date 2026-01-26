@@ -77,12 +77,14 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Note: get_device_status catches exceptions internally and returns default values
             # So we need to check the returned data to detect failures
             # Device requires ~10s between requests for stability
+            # Pass previous data to preserve values when individual requests fail
             device_status = await self.udp_client.get_device_status(
                 current_ip,
                 port=DEFAULT_UDP_PORT,
                 timeout=10.0,  # Increased timeout for device status requests
                 include_pv=True,
                 delay_between_requests=10.0,  # Device needs longer delay for stability
+                previous_status=self.data,  # Preserve values on partial failures
             )
 
             # Check if we actually got valid data

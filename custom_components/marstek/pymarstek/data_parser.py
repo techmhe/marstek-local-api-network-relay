@@ -217,6 +217,7 @@ def merge_device_status(
     bat_status_data: dict[str, Any] | None = None,
     device_ip: str | None = None,
     last_update: float | None = None,
+    previous_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Merge all status data into a complete device status.
     
@@ -227,6 +228,7 @@ def merge_device_status(
     4. wifi_status_data (WiFi RSSI, network info)
     5. em_status_data (CT connection, phase powers)
     6. pv_status_data (PV channel data)
+    7. previous_status (fallback for any values not provided by current data)
     
     Args:
         es_mode_data: Parsed ES.GetMode data (device_mode, ongrid_power)
@@ -237,10 +239,13 @@ def merge_device_status(
         bat_status_data: Parsed Bat.GetStatus data (temperature, capacity)
         device_ip: Device IP address
         last_update: Timestamp of last update
+        previous_status: Previous device status to preserve values when individual 
+            requests fail (prevents intermittent "Unknown" states)
         
     Returns:
         Complete device status dictionary
     """
+    # Start with defaults
     status: dict[str, Any] = {
         "battery_soc": 0,
         "battery_power": 0,
@@ -279,6 +284,17 @@ def merge_device_status(
         "bat_charg_flag": None,
         "bat_dischrg_flag": None,
     }
+    
+    # Apply previous status first (lowest priority) to preserve values 
+    # from last successful poll when individual requests fail
+    if previous_status:
+        # Only preserve non-None values from previous status
+        for key, value in previous_status.items():
+            if value is not None and key in status and status[key] is None:
+                status[key] = value
+            # Also preserve "Unknown" values with actual values from previous
+            elif key in status and status[key] == "Unknown" and value not in (None, "Unknown"):
+                status[key] = value
     
     # Apply in order of priority (lowest to highest)
     if pv_status_data:

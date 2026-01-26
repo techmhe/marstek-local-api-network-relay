@@ -333,6 +333,102 @@ class TestMergeDeviceStatus:
         # ES.GetStatus should win
         assert result["battery_soc"] == 55
 
+    def test_previous_status_preserves_values_on_partial_failure(self):
+        """Test that previous_status values are preserved when individual requests fail.
+        
+        This prevents intermittent "Unknown" states when a single API endpoint
+        times out but others succeed.
+        """
+        previous_status = {
+            "device_mode": "auto",
+            "battery_status": "Selling",
+            "battery_soc": 60,
+            "battery_power": 300,
+            "ct_state": 1,
+            "ct_connected": True,
+            "em_total_power": 500,
+            "wifi_rssi": -55,
+            "bat_temp": 25.0,
+        }
+        
+        # Simulate: ES.GetMode succeeded, but EM.GetStatus and Bat.GetStatus failed
+        es_mode_data = {
+            "device_mode": "auto",
+            "ongrid_power": 150,
+        }
+        es_status_data = {
+            "battery_soc": 58,  # Updated value
+            "battery_power": 280,
+            "battery_status": "Selling",
+        }
+        
+        result = merge_device_status(
+            es_mode_data=es_mode_data,
+            es_status_data=es_status_data,
+            pv_status_data=None,  # Failed
+            wifi_status_data=None,  # Failed  
+            em_status_data=None,  # Failed - would normally set ct_state to None
+            bat_status_data=None,  # Failed - would normally set bat_temp to None
+            previous_status=previous_status,
+        )
+
+        # Fresh data from successful requests
+        assert result["device_mode"] == "auto"
+        assert result["battery_soc"] == 58  # Updated
+        assert result["battery_power"] == 280  # Updated
+        assert result["battery_status"] == "Selling"
+        
+        # Preserved values from previous_status (requests failed)
+        assert result["ct_state"] == 1  # Preserved
+        assert result["ct_connected"] is True  # Preserved
+        assert result["wifi_rssi"] == -55  # Preserved
+        assert result["bat_temp"] == 25.0  # Preserved
+
+    def test_previous_status_unknown_values_replaced(self):
+        """Test that 'Unknown' default values are replaced by previous_status."""
+        previous_status = {
+            "device_mode": "auto",
+            "battery_status": "Idle",
+        }
+        
+        # Simulate all requests failed - merge_device_status would use defaults
+        result = merge_device_status(
+            es_mode_data=None,
+            es_status_data=None,
+            previous_status=previous_status,
+        )
+
+        # Should use previous values instead of defaults
+        assert result["device_mode"] == "auto"  # Preserved from previous
+        assert result["battery_status"] == "Idle"  # Preserved from previous
+
+    def test_fresh_data_overrides_previous_status(self):
+        """Test that fresh data always overrides previous_status values."""
+        previous_status = {
+            "battery_soc": 60,
+            "battery_power": 300,
+            "ct_connected": True,
+        }
+        
+        es_status_data = {
+            "battery_soc": 55,  # New value
+            "battery_power": 0,  # New value (idle)
+        }
+        em_status_data = {
+            "ct_connected": False,  # CT disconnected now
+        }
+        
+        result = merge_device_status(
+            es_status_data=es_status_data,
+            em_status_data=em_status_data,
+            previous_status=previous_status,
+        )
+
+        # Fresh data wins
+        assert result["battery_soc"] == 55
+        assert result["battery_power"] == 0
+        assert result["ct_connected"] is False
+
 
 class TestParseEsModeResponse:
     """Tests for parse_es_mode_response."""
