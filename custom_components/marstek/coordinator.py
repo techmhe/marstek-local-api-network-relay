@@ -15,17 +15,21 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DEFAULT_UDP_PORT, DOMAIN
+from .const import (
+    CONF_POLL_INTERVAL_FAST,
+    CONF_POLL_INTERVAL_MEDIUM,
+    CONF_POLL_INTERVAL_SLOW,
+    CONF_REQUEST_DELAY,
+    DEFAULT_POLL_INTERVAL_FAST,
+    DEFAULT_POLL_INTERVAL_MEDIUM,
+    DEFAULT_POLL_INTERVAL_SLOW,
+    DEFAULT_REQUEST_DELAY,
+    DEFAULT_UDP_PORT,
+    DOMAIN,
+    INITIAL_SETUP_REQUEST_DELAY,
+)
 
 _LOGGER = logging.getLogger(__name__)
-
-# Polling intervals for different data types
-# Fast: Real-time power data (ES.GetMode, ES.GetStatus, EM.GetStatus)
-# Medium: PV data - changes with sun but less critical
-# Slow: WiFi and battery details - rarely change
-SCAN_INTERVAL = timedelta(seconds=30)  # Base interval for fast data
-MEDIUM_POLL_INTERVAL = 60  # PV status every 60 seconds
-SLOW_POLL_INTERVAL = 300  # WiFi and battery details every 5 minutes
 
 
 class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -37,8 +41,18 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         config_entry: ConfigEntry,
         udp_client: MarstekUDPClient,
         device_ip: str,
+        *,
+        is_initial_setup: bool = False,
     ) -> None:
-        """Initialize the coordinator."""
+        """Initialize the coordinator.
+        
+        Args:
+            hass: Home Assistant instance
+            config_entry: Config entry for this device
+            udp_client: UDP client for communication
+            device_ip: IP address of the device
+            is_initial_setup: If True, use faster delays for initial data fetch
+        """
         self.udp_client = udp_client
         self.config_entry = config_entry
         # Use initial IP, but will read from config_entry.data dynamically
@@ -48,24 +62,59 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_pv_fetch: float = 0.0  # Medium interval
         self._last_slow_fetch: float = 0.0  # Slow interval (WiFi, battery details)
         
+        # Track if this is the initial setup (use faster delays)
+        self._is_initial_setup = is_initial_setup
+        
+        # Get configured fast polling interval
+        fast_interval = config_entry.options.get(
+            CONF_POLL_INTERVAL_FAST, DEFAULT_POLL_INTERVAL_FAST
+        )
+        
         super().__init__(
             hass,
             _LOGGER,
             name=f"Marstek {device_ip}",
-            update_interval=SCAN_INTERVAL,
+            update_interval=timedelta(seconds=fast_interval),
             config_entry=config_entry,
         )
+        
+        # Log configured intervals
+        medium_interval = self._get_medium_interval()
+        slow_interval = self._get_slow_interval()
+        request_delay = self._get_request_delay()
         _LOGGER.debug(
-            "Device %s polling coordinator started, interval: %ss (fast), %ss (medium/PV), %ss (slow/WiFi+Bat)",
+            "Device %s polling coordinator started, interval: %ss (fast), %ss (medium/PV), %ss (slow/WiFi+Bat), delay: %ss%s",
             device_ip,
-            SCAN_INTERVAL.total_seconds(),
-            MEDIUM_POLL_INTERVAL,
-            SLOW_POLL_INTERVAL,
+            fast_interval,
+            medium_interval,
+            slow_interval,
+            request_delay,
+            " [INITIAL SETUP - fast delays]" if is_initial_setup else "",
         )
 
         # Register listener to update entity names when config entry changes
         config_entry.async_on_unload(
             config_entry.add_update_listener(self._async_config_entry_updated)
+        )
+    
+    def _get_medium_interval(self) -> int:
+        """Get medium polling interval from options."""
+        return self.config_entry.options.get(
+            CONF_POLL_INTERVAL_MEDIUM, DEFAULT_POLL_INTERVAL_MEDIUM
+        )
+    
+    def _get_slow_interval(self) -> int:
+        """Get slow polling interval from options."""
+        return self.config_entry.options.get(
+            CONF_POLL_INTERVAL_SLOW, DEFAULT_POLL_INTERVAL_SLOW
+        )
+    
+    def _get_request_delay(self) -> float:
+        """Get delay between requests from options, or fast delay for initial setup."""
+        if self._is_initial_setup:
+            return INITIAL_SETUP_REQUEST_DELAY
+        return self.config_entry.options.get(
+            CONF_REQUEST_DELAY, DEFAULT_REQUEST_DELAY
         )
 
     @property
@@ -78,10 +127,10 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data using library's get_device_status method with tiered polling.
         
-        Tiered polling intervals:
-        - Fast (every poll): ES.GetMode, ES.GetStatus, EM.GetStatus - real-time power
-        - Medium (60s): PV.GetStatus - solar data
-        - Slow (5min): Wifi.GetStatus, Bat.GetStatus - rarely changes
+        Tiered polling intervals (configurable per device):
+        - Fast (base interval): ES.GetMode, ES.GetStatus, EM.GetStatus - real-time power
+        - Medium: PV.GetStatus - solar data
+        - Slow: Wifi.GetStatus, Bat.GetStatus - rarely changes
         """
         current_ip = self.device_ip
         _LOGGER.debug("Start polling device: %s", current_ip)
@@ -92,12 +141,15 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Determine which data types to fetch based on elapsed time
         current_time = time.monotonic()
+        medium_interval = self._get_medium_interval()
+        slow_interval = self._get_slow_interval()
+        request_delay = self._get_request_delay()
         
-        # PV data - medium interval (60s)
-        include_pv = (current_time - self._last_pv_fetch) >= MEDIUM_POLL_INTERVAL
+        # PV data - medium interval
+        include_pv = (current_time - self._last_pv_fetch) >= medium_interval
         
-        # WiFi and battery details - slow interval (5 min)
-        include_slow = (current_time - self._last_slow_fetch) >= SLOW_POLL_INTERVAL
+        # WiFi and battery details - slow interval
+        include_slow = (current_time - self._last_slow_fetch) >= slow_interval
         
         _LOGGER.debug(
             "Polling tiers for %s: fast=always, pv=%s, wifi/bat=%s",
@@ -109,7 +161,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             # Use library method to get device status
             # Pass flags to control which data types to fetch
-            # Device requires ~10s between requests for stability
+            # Device requires delay between requests for stability (configurable)
             device_status = await self.udp_client.get_device_status(
                 current_ip,
                 port=DEFAULT_UDP_PORT,
@@ -118,7 +170,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 include_wifi=include_slow,
                 include_em=True,  # Always fetch - fast tier
                 include_bat=include_slow,
-                delay_between_requests=10.0,
+                delay_between_requests=request_delay,
                 previous_status=self.data,  # Preserve values on partial failures
             )
 

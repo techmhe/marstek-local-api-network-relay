@@ -113,10 +113,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
     }
 
     # Create coordinator in __init__.py (mik-laj feedback)
+    # Use is_initial_setup=True for faster API request delays during first data fetch
     coordinator = MarstekDataUpdateCoordinator(
-        hass, entry, udp_client, device_info_dict["ip"]
+        hass, entry, udp_client, device_info_dict["ip"], is_initial_setup=True
     )
     await coordinator.async_config_entry_first_refresh()
+    
+    # Reset initial setup flag - subsequent polls use normal configured delays
+    coordinator._is_initial_setup = False  # noqa: SLF001
 
     # Store client, coordinator, and device_info in runtime_data
     entry.runtime_data = MarstekRuntimeData(

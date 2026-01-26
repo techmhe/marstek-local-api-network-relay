@@ -14,6 +14,11 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_PORT
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device_registry import format_mac
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+)
 
 try:
     from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
@@ -33,7 +38,18 @@ except ImportError:
             hostname: str
             macaddress: str
 
-from .const import DEFAULT_UDP_PORT, DOMAIN
+from .const import (
+    CONF_POLL_INTERVAL_FAST,
+    CONF_POLL_INTERVAL_MEDIUM,
+    CONF_POLL_INTERVAL_SLOW,
+    CONF_REQUEST_DELAY,
+    DEFAULT_POLL_INTERVAL_FAST,
+    DEFAULT_POLL_INTERVAL_MEDIUM,
+    DEFAULT_POLL_INTERVAL_SLOW,
+    DEFAULT_REQUEST_DELAY,
+    DEFAULT_UDP_PORT,
+    DOMAIN,
+)
 from .discovery import discover_devices, get_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -394,26 +410,89 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return await self.async_step_user()
 
     @staticmethod
-    @config_entries.HANDLERS.register(DOMAIN)
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Return the options flow."""
-        return MarstekOptionsFlow(config_entry)
+        return MarstekOptionsFlow()
 
 
 class MarstekOptionsFlow(config_entries.OptionsFlow):
     """Handle Marstek options."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Manage the Marstek options."""
         if user_input is not None:
-            return self.async_create_entry(title="Marstek options", data=user_input)
+            return self.async_create_entry(title="", data=user_input)
 
-        return self.async_show_form(step_id="init", data_schema=vol.Schema({}))
+        # Get current values from options, falling back to defaults
+        current_fast = self.config_entry.options.get(
+            CONF_POLL_INTERVAL_FAST, DEFAULT_POLL_INTERVAL_FAST
+        )
+        current_medium = self.config_entry.options.get(
+            CONF_POLL_INTERVAL_MEDIUM, DEFAULT_POLL_INTERVAL_MEDIUM
+        )
+        current_slow = self.config_entry.options.get(
+            CONF_POLL_INTERVAL_SLOW, DEFAULT_POLL_INTERVAL_SLOW
+        )
+        current_delay = self.config_entry.options.get(
+            CONF_REQUEST_DELAY, DEFAULT_REQUEST_DELAY
+        )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_POLL_INTERVAL_FAST,
+                        default=current_fast,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=10,
+                            max=300,
+                            step=5,
+                            unit_of_measurement="seconds",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_POLL_INTERVAL_MEDIUM,
+                        default=current_medium,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=30,
+                            max=600,
+                            step=10,
+                            unit_of_measurement="seconds",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_POLL_INTERVAL_SLOW,
+                        default=current_slow,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=60,
+                            max=1800,
+                            step=30,
+                            unit_of_measurement="seconds",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_REQUEST_DELAY,
+                        default=current_delay,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=1.0,
+                            max=30.0,
+                            step=0.5,
+                            unit_of_measurement="seconds",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                }
+            ),
+        )
