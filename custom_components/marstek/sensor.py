@@ -95,7 +95,6 @@ class MarstekSensor(CoordinatorEntity[MarstekDataUpdateCoordinator], SensorEntit
             manufacturer="Marstek",
             model=device_info["device_type"],
             sw_version=str(device_info["version"]),
-            hw_version=device_info.get("wifi_mac", ""),
         )
 
     @property
@@ -154,7 +153,7 @@ class MarstekBatterySensor(MarstekSensor):
 class MarstekPowerSensor(MarstekSensor):
     """Representation of a Marstek power sensor."""
 
-    _attr_translation_key = "grid_power"
+    _attr_translation_key = "battery_power"
     _attr_native_unit_of_measurement = UnitOfPower.WATT
     _attr_state_class = SensorStateClass.MEASUREMENT
 

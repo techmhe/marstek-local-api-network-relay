@@ -77,7 +77,6 @@ class MarstekCTConnectionBinarySensor(
             manufacturer="Marstek",
             model=device_info["device_type"],
             sw_version=str(device_info["version"]),
-            hw_version=device_info.get("wifi_mac", ""),
         )
 
     @property

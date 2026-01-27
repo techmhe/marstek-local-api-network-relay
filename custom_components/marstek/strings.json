@@ -77,6 +77,9 @@
       "battery_level": {
         "name": "Battery level"
       },
+      "battery_power": {
+        "name": "Battery power"
+      },
       "grid_power": {
         "name": "Grid power"
       },

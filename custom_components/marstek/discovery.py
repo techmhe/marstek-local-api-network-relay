@@ -107,6 +107,7 @@ async def discover_devices(
     _LOGGER.debug("Starting local device discovery (timeout=%ss, port=%d)", timeout, port)
 
     # Create UDP socket with broadcast support
+    # Bind to an ephemeral port to avoid conflicts with the shared UDP client
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -115,10 +116,10 @@ async def discover_devices(
     sock.setblocking(False)
 
     try:
-        sock.bind(("0.0.0.0", port))
-        _LOGGER.debug("Socket bound to 0.0.0.0:%d", port)
+        sock.bind(("0.0.0.0", 0))
+        _LOGGER.debug("Socket bound to %s:%d", *sock.getsockname())
     except OSError as err:
-        _LOGGER.error("Failed to bind UDP socket to port %d: %s", port, err)
+        _LOGGER.error("Failed to bind UDP socket: %s", err)
         sock.close()
         raise
 
@@ -252,6 +253,9 @@ async def get_device_info(
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.setblocking(False)
+
+    # Bind to an ephemeral port to avoid conflicts with the shared UDP client
+    sock.bind(("0.0.0.0", 0))
 
     # Build request
     request = {

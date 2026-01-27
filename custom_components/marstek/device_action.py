@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
-from .pymarstek import build_command, get_es_mode
+from .pymarstek import build_command, get_es_status
 import voluptuous as vol
 
 from homeassistant.components.device_automation import InvalidDeviceAutomationConfig
@@ -223,15 +223,15 @@ async def _verify_es_mode(
     """Verify that ES mode matches expected state.
 
     Rules:
-    - Mode should be "Manual"
-    - enable=0 (stop): ongrid_power should be near zero (< 50W)
-    - enable=1 and power<0 (charge): ongrid_power should be negative
-    - enable=1 and power>0 (discharge): ongrid_power should be positive
+    - Mode should be "Manual" (if present)
+    - enable=0 (stop): battery_power should be near zero (< 50W)
+    - enable=1 and power<0 (charge): battery_power should be negative
+    - enable=1 and power>0 (discharge): battery_power should be positive
     """
     for _ in range(VERIFICATION_ATTEMPTS):
         try:
             response = await udp_client.send_request(
-                get_es_mode(0),
+                get_es_status(0),
                 host,
                 port,
                 timeout=VERIFICATION_TIMEOUT,
@@ -243,20 +243,24 @@ async def _verify_es_mode(
 
         result = response.get("result", {}) if isinstance(response, dict) else {}
         mode = result.get("mode")
-        ongrid_power = result.get("ongrid_power")
+        battery_power = result.get("bat_power")
 
-        if mode != "Manual" or not isinstance(ongrid_power, (int, float)):
+        if mode is not None and mode != "Manual":
+            await asyncio.sleep(VERIFICATION_DELAY)
+            continue
+
+        if not isinstance(battery_power, (int, float)):
             await asyncio.sleep(VERIFICATION_DELAY)
             continue
 
         if enable == 0:
-            if abs(ongrid_power) < STOP_POWER_THRESHOLD:
+            if abs(battery_power) < STOP_POWER_THRESHOLD:
                 return True
         elif enable == 1 and power < 0:
-            if ongrid_power < 0:
+            if battery_power < 0:
                 return True
         elif enable == 1 and power > 0:
-            if ongrid_power > 0:
+            if battery_power > 0:
                 return True
 
         await asyncio.sleep(VERIFICATION_DELAY)

@@ -4,6 +4,9 @@
       "battery_level": {
         "default": "mdi:battery"
       },
+      "battery_power": {
+        "default": "mdi:battery-charging"
+      },
       "grid_power": {
         "default": "mdi:flash"
       },
