@@ -21,7 +21,7 @@
         "data_description": {
           "device": "Choose the Marstek device you want to add"
         },
-        "description": "Select your Marstek energy storage device from the discovered devices",
+        "description": "Select your Marstek energy storage device from the discovered devices:\n{devices}",
         "title": "Marstek Energy Storage"
       },
       "manual": {

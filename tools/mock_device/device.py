@@ -188,9 +188,14 @@ class MockMarstekDevice:
             return handle_es_get_mode(request_id, src, state)
 
         elif method == "PV.GetStatus":
-            # Per API docs (Chapter 4): Only Venus D supports PV, not Venus C/E
+            # PV is supported by Venus A and Venus D; Venus C/E do NOT
             device_type = self.config.get("device", "").lower()
-            if "venusd" not in device_type and "venus d" not in device_type:
+            if (
+                "venusa" not in device_type
+                and "venus a" not in device_type
+                and "venusd" not in device_type
+                and "venus d" not in device_type
+            ):
                 # Return error for unsupported method on Venus C/E devices
                 return {
                     "id": request_id,

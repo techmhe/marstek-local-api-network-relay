@@ -16,7 +16,7 @@ A **custom Home Assistant integration** for monitoring and controlling Marstek e
 - **Battery Temperature** - Battery pack temperature
 - **Battery Status** - Current operational status
 - **Operating Mode** - Current device mode (Auto, AI, Manual, Passive)
-- **PV Metrics** - Solar panel power, voltage, current, and state (up to 4 channels)
+- **PV Metrics** - Solar panel power, voltage, current, and state (up to 4 channels; Venus A/D)
 - **Grid Power** - Total grid power from energy meter (3-phase support)
 - **WiFi Signal Strength** - RSSI for connectivity diagnostics
 - **CT Connection Status** - Current transformer connection state
@@ -78,12 +78,29 @@ cp -r /path/to/ha_marstek/custom_components/marstek custom_components/
 4. The integration will automatically discover devices on your network
 5. Select your device and complete the setup
 
+### Options
+
+After setup, you can adjust polling and request behavior in **Device → Configure**:
+
+- **Fast polling interval** (default: 30s): ES.GetMode, ES.GetStatus, EM.GetStatus (real-time power)
+- **Medium polling interval** (default: 60s): PV.GetStatus (solar data, Venus D only)
+- **Slow polling interval** (default: 300s): Wifi.GetStatus, Bat.GetStatus (diagnostics)
+- **Request delay** (default: 10s): Delay between consecutive UDP requests
+- **Request timeout** (default: 10s): Per-request timeout before retry/fail
+- **Failures before unavailable** (default: 3): Consecutive failures before entities become unavailable
+
+These values can be tuned to reduce network traffic or improve responsiveness.
+
+### Data updates
+
+The integration uses a single `DataUpdateCoordinator` per device with tiered polling to avoid request bursts. Entities never perform their own I/O and always read from coordinator data.
+
 ## Supported Devices
 
 | Device | Status |
 |--------|--------|
-| Venus A 3.0 | Supported |
-| Venus D 3.0 | Supported |
+| Venus A 3.0 | Supported (PV supported) |
+| Venus D 3.0 | Supported (PV supported) |
 | Venus E 3.0 | Supported |
 | Venus E 2.0 | Not compatible |
 | Other OPEN API devices | May work (untested) |

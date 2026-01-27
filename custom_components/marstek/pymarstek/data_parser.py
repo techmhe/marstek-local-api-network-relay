@@ -115,11 +115,24 @@ def parse_pv_status_response(response: dict[str, Any]) -> dict[str, Any]:
     result = response.get("result", {})
     
     pv_data: dict[str, Any] = {}
+
+    def _scale_pv_power(raw_value: Any) -> Any:
+        """Scale PV power to correct known factor-of-10 underreporting.
+
+        Some devices report PV power in deciwatts while voltage/current are in
+        their normal units. Multiply by 10 to match app values.
+        """
+        if raw_value is None:
+            return None
+        try:
+            return float(raw_value) * 10
+        except (TypeError, ValueError):
+            return raw_value
     
     # Check for single-channel format (per API spec)
     if "pv_power" in result:
         # Single PV channel - map to pv1_* for consistency
-        pv_data["pv1_power"] = result.get("pv_power", 0)
+        pv_data["pv1_power"] = _scale_pv_power(result.get("pv_power", 0))
         pv_data["pv1_voltage"] = result.get("pv_voltage", 0)
         pv_data["pv1_current"] = result.get("pv_current", 0)
         pv_data["pv1_state"] = 1 if result.get("pv_power", 0) > 0 else 0
@@ -127,7 +140,9 @@ def parse_pv_status_response(response: dict[str, Any]) -> dict[str, Any]:
         # Multi-channel format - extract data for each PV channel (1-4)
         for channel in range(1, 5):
             prefix = f"pv{channel}_"
-            pv_data[f"{prefix}power"] = result.get(f"{prefix}power", 0)
+            pv_data[f"{prefix}power"] = _scale_pv_power(
+                result.get(f"{prefix}power", 0)
+            )
             pv_data[f"{prefix}voltage"] = result.get(f"{prefix}voltage", 0)
             pv_data[f"{prefix}current"] = result.get(f"{prefix}current", 0)
             pv_data[f"{prefix}state"] = result.get(f"{prefix}state", 0)

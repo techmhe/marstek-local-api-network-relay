@@ -95,6 +95,15 @@ def handle_pv_get_status(
     """
     state = pv_state or {}
 
+    def _to_deciwatts(value: Any) -> Any:
+        """Convert PV power in watts to deciwatts for mock output."""
+        if value is None:
+            return None
+        try:
+            return float(value) / 10
+        except (TypeError, ValueError):
+            return value
+
     # If pv_channels is provided, return multi-channel format (pv1_..pv4_)
     pv_channels = state.get("pv_channels")
     if isinstance(pv_channels, list) and pv_channels:
@@ -104,7 +113,7 @@ def handle_pv_get_status(
             if idx < 1 or idx > 4:
                 continue
             prefix = f"pv{idx}_"
-            result[f"{prefix}power"] = channel.get("pv_power", 0)
+            result[f"{prefix}power"] = _to_deciwatts(channel.get("pv_power", 0))
             result[f"{prefix}voltage"] = channel.get("pv_voltage", 0)
             result[f"{prefix}current"] = channel.get("pv_current", 0)
             result[f"{prefix}state"] = 1 if channel.get("pv_power", 0) > 0 else 0
@@ -120,7 +129,7 @@ def handle_pv_get_status(
         "src": src,
         "result": {
             "id": 0,
-            "pv_power": state.get("pv_power", 0),
+            "pv_power": _to_deciwatts(state.get("pv_power", 0)),
             "pv_voltage": state.get("pv_voltage", 0),
             "pv_current": state.get("pv_current", 0),
         },

@@ -38,7 +38,7 @@
         "default": "mdi:flash"
       },
       "pv1_current": {
-        "default": "mdi:current-ac"
+        "default": "mdi:current-dc"
       },
       "pv1_state": {
         "default": "mdi:state-machine"
@@ -50,7 +50,7 @@
         "default": "mdi:flash"
       },
       "pv2_current": {
-        "default": "mdi:current-ac"
+        "default": "mdi:current-dc"
       },
       "pv2_state": {
         "default": "mdi:state-machine"
@@ -62,7 +62,7 @@
         "default": "mdi:flash"
       },
       "pv3_current": {
-        "default": "mdi:current-ac"
+        "default": "mdi:current-dc"
       },
       "pv3_state": {
         "default": "mdi:state-machine"
@@ -74,7 +74,7 @@
         "default": "mdi:flash"
       },
       "pv4_current": {
-        "default": "mdi:current-ac"
+        "default": "mdi:current-dc"
       },
       "pv4_state": {
         "default": "mdi:state-machine"

@@ -194,11 +194,11 @@ class TestParsePvStatusResponse:
 
         result = parse_pv_status_response(response)
 
-        assert result["pv1_power"] == 300
+        assert result["pv1_power"] == 3000.0
         assert result["pv1_voltage"] == 35
         assert result["pv1_current"] == 8.5
         assert result["pv1_state"] == 1
-        assert result["pv2_power"] == 250
+        assert result["pv2_power"] == 2500.0
 
     def test_parse_single_channel_format(self):
         """Test parsing single-channel PV response (pv_ without number)."""
@@ -214,7 +214,7 @@ class TestParsePvStatusResponse:
         result = parse_pv_status_response(response)
 
         # Should be mapped to pv1_* for consistency
-        assert result["pv1_power"] == 500
+        assert result["pv1_power"] == 5000.0
         assert result["pv1_voltage"] == 36
         assert result["pv1_current"] == 13.8
         assert result["pv1_state"] == 1  # Active since power > 0
@@ -232,7 +232,7 @@ class TestParsePvStatusResponse:
 
         result = parse_pv_status_response(response)
 
-        assert result["pv1_power"] == 0
+        assert result["pv1_power"] == 0.0
         assert result["pv1_state"] == 0  # Inactive since power = 0
 
 

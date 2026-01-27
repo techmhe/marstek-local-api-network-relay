@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Marstek Energy Storage",
-        "description": "Select your Marstek energy storage device from the discovered devices",
+        "description": "Select your Marstek energy storage device from the discovered devices:\n{devices}",
         "data": {
           "device": "Select Device"
         },
