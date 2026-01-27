@@ -151,9 +151,14 @@ class TestDeviceDiscovery:
         assert "rssi" in result
         assert "ssid" in result
 
-    def test_pv_get_status(self) -> None:
-        """Test PV.GetStatus returns panel info (API spec format)."""
-        device = MockMarstekDevice(port=30007, simulate=False)
+    def test_pv_get_status_venus_d(self) -> None:
+        """Test PV.GetStatus returns panel info for VenusD (only device with PV support)."""
+        # Only Venus D supports PV per API docs (Chapter 4)
+        device = MockMarstekDevice(
+            port=30007, 
+            simulate=False,
+            device_config={"device": "VenusD", "ver": 145},
+        )
 
         response = device._build_response(1, "PV.GetStatus", {})
 
@@ -164,6 +169,19 @@ class TestDeviceDiscovery:
         assert "pv_voltage" in result
         assert "pv_current" in result
         assert "id" in result
+
+    def test_pv_get_status_venus_e_returns_error(self) -> None:
+        """Test PV.GetStatus returns error for VenusE (no PV support per API docs)."""
+        # Venus E does NOT support PV per API docs (Chapter 4)
+        device = MockMarstekDevice(port=30017, simulate=False)  # Default is VenusE 3.0
+
+        response = device._build_response(1, "PV.GetStatus", {})
+
+        assert response is not None
+        # Should return error, not result
+        assert "error" in response
+        assert response["error"]["code"] == -32601  # Method not found
+        assert "result" not in response
 
     def test_bat_get_status(self) -> None:
         """Test Bat.GetStatus returns battery info."""

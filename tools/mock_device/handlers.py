@@ -82,12 +82,39 @@ def handle_es_get_mode(
     }
 
 
-def handle_pv_get_status(request_id: int, src: str, pv_state: dict[str, Any] | None = None) -> dict[str, Any]:
+def handle_pv_get_status(
+    request_id: int,
+    src: str,
+    pv_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Handle PV.GetStatus request per API spec.
-    
+
     API spec returns single channel: pv_power, pv_voltage, pv_current.
+    Some devices (Venus D) expose multi-channel PV (MPPT) data.
+    This mock supports both formats based on provided pv_state.
     """
     state = pv_state or {}
+
+    # If pv_channels is provided, return multi-channel format (pv1_..pv4_)
+    pv_channels = state.get("pv_channels")
+    if isinstance(pv_channels, list) and pv_channels:
+        result: dict[str, Any] = {"id": 0}
+        for channel in pv_channels[:4]:
+            idx = int(channel.get("channel", 0))
+            if idx < 1 or idx > 4:
+                continue
+            prefix = f"pv{idx}_"
+            result[f"{prefix}power"] = channel.get("pv_power", 0)
+            result[f"{prefix}voltage"] = channel.get("pv_voltage", 0)
+            result[f"{prefix}current"] = channel.get("pv_current", 0)
+            result[f"{prefix}state"] = 1 if channel.get("pv_power", 0) > 0 else 0
+        return {
+            "id": request_id,
+            "src": src,
+            "result": result,
+        }
+
+    # Default: single-channel format
     return {
         "id": request_id,
         "src": src,

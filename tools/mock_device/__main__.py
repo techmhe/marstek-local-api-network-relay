@@ -32,6 +32,15 @@ def main() -> None:
         help="Initial battery SOC percentage (default: 50)",
     )
     parser.add_argument(
+        "--pv-channels",
+        type=str,
+        help=(
+            "Optional PV channel values for VenusD in the format "
+            "'power:voltage:current, ...' (up to 4 channels). "
+            "Example: '300:40:7.5,250:38:6.6,200:36:5.5,0:0:0'"
+        ),
+    )
+    parser.add_argument(
         "--no-simulate",
         action="store_true",
         help="Disable dynamic simulation (static values only)",
@@ -43,6 +52,33 @@ def main() -> None:
         "ble_mac": args.ble_mac.replace(":", "").lower(),
         "wifi_mac": args.wifi_mac.replace(":", "").lower(),
     }
+
+    if args.pv_channels:
+        channels: list[dict[str, float]] = []
+        for idx, chunk in enumerate(args.pv_channels.split(","), start=1):
+            parts = chunk.split(":")
+            if len(parts) != 3:
+                raise SystemExit(
+                    "Invalid --pv-channels format. "
+                    "Expected 'power:voltage:current' per channel."
+                )
+            try:
+                power = float(parts[0])
+                voltage = float(parts[1])
+                current = float(parts[2])
+            except ValueError as exc:
+                raise SystemExit(
+                    "Invalid numeric values in --pv-channels."
+                ) from exc
+            channels.append(
+                {
+                    "channel": idx,
+                    "pv_power": power,
+                    "pv_voltage": voltage,
+                    "pv_current": current,
+                }
+            )
+        config["pv_channels"] = channels
 
     device = MockMarstekDevice(
         port=args.port,

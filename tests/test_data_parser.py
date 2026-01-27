@@ -503,3 +503,86 @@ class TestParseEsStatusResponse:
 
         assert result["battery_power"] == 0
         assert result["battery_status"] == "Idle"
+
+
+class TestMergeDeviceStatusNoPV:
+    """Tests for merge_device_status without PV data (Venus C/E devices)."""
+
+    def test_no_pv_keys_when_no_pv_data(self):
+        """Test that PV keys are NOT included when no PV data is provided.
+        
+        Per API docs (Chapter 4): Only Venus D supports PV, not Venus C/E.
+        When pv_status_data is None, no PV keys should be in the result.
+        """
+        result = merge_device_status(
+            es_mode_data={"device_mode": "auto"},
+            es_status_data={"battery_soc": 55},
+            pv_status_data=None,  # No PV data - simulates Venus C/E
+            wifi_status_data=None,
+            em_status_data=None,
+            bat_status_data=None,
+        )
+
+        # PV keys should NOT be present when no PV data provided
+        assert "pv1_power" not in result
+        assert "pv2_power" not in result
+        assert "pv3_power" not in result
+        assert "pv4_power" not in result
+
+    def test_pv_keys_included_when_pv_data_provided(self):
+        """Test that PV keys ARE included when PV data is provided (Venus D)."""
+        pv_data = {
+            "pv1_power": 300,
+            "pv1_voltage": 40,
+            "pv1_current": 7.5,
+            "pv1_state": 1,
+        }
+
+        result = merge_device_status(
+            es_mode_data={"device_mode": "auto"},
+            es_status_data=None,
+            pv_status_data=pv_data,  # Venus D with PV data
+            wifi_status_data=None,
+            em_status_data=None,
+            bat_status_data=None,
+        )
+
+        # PV keys should be present when PV data provided
+        assert result["pv1_power"] == 300
+        assert result["pv1_voltage"] == 40
+        assert result["pv1_current"] == 7.5
+        assert result["pv1_state"] == 1
+        # Only channels with data should be present
+        assert "pv2_power" not in result
+
+
+class TestDeviceSupportsP:
+    """Tests for device_supports_pv function."""
+
+    def test_venus_d_supports_pv(self):
+        """Test Venus D variants are correctly identified as PV capable."""
+        from custom_components.marstek.const import device_supports_pv
+
+        assert device_supports_pv("VenusD") is True
+        assert device_supports_pv("Venus D") is True
+        assert device_supports_pv("venusd") is True
+        assert device_supports_pv("VenusD 3.0") is True
+        assert device_supports_pv("Venus D 3.0") is True
+
+    def test_venus_c_e_no_pv_support(self):
+        """Test Venus C/E variants are correctly identified as NOT PV capable."""
+        from custom_components.marstek.const import device_supports_pv
+
+        assert device_supports_pv("VenusC") is False
+        assert device_supports_pv("VenusE 3.0") is False
+        assert device_supports_pv("Venus C") is False
+        assert device_supports_pv("venusc") is False
+        assert device_supports_pv("venuse") is False
+
+    def test_none_or_empty_no_pv_support(self):
+        """Test None or empty device type returns False."""
+        from custom_components.marstek.const import device_supports_pv
+
+        assert device_supports_pv(None) is False
+        assert device_supports_pv("") is False
+        assert device_supports_pv("Unknown") is False

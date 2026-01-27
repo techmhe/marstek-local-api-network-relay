@@ -92,3 +92,29 @@ DEFAULT_REQUEST_TIMEOUT: Final = 10.0  # Timeout for each API request
 DEFAULT_FAILURE_THRESHOLD: Final = 3  # Failures before entities become unavailable
 
 INITIAL_SETUP_REQUEST_DELAY: Final = 2.0  # Faster delay during first data fetch
+
+# Device capability detection
+# Per API docs: PV component is ONLY supported by Venus D, not Venus C/E
+# Device names from API: "VenusC", "VenusD", "VenusE 3.0", etc.
+_DEVICE_PV_SUPPORT_TOKENS: Final[frozenset[str]] = frozenset({
+    "venusd",
+})
+
+
+def device_supports_pv(device_type: str | None) -> bool:
+    """Check if a device type supports PV (solar) components.
+
+    Per Marstek Open API docs (Chapter 4), only Venus D supports PV.
+    Venus C/E do NOT have PV component support.
+
+    Args:
+        device_type: Device type string (e.g., "VenusE 3.0", "VenusD")
+
+    Returns:
+        True if device supports PV, False otherwise
+    """
+    if not device_type:
+        return False
+    # Normalize by removing non-alphanumerics and lowercasing for stable matching
+    normalized = "".join(ch for ch in device_type if ch.isalnum()).lower()
+    return any(token in normalized for token in _DEVICE_PV_SUPPORT_TOKENS)

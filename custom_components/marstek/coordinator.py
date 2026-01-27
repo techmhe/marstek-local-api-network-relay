@@ -32,6 +32,7 @@ from .const import (
     DEFAULT_UDP_PORT,
     DOMAIN,
     INITIAL_SETUP_REQUEST_DELAY,
+    device_supports_pv,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,6 +63,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.config_entry = config_entry
         # Use initial IP, but will read from config_entry.data dynamically
         self._initial_device_ip = device_ip
+        
+        # Check device capabilities based on device type
+        # Per API docs (Chapter 4): Only Venus D supports PV, not Venus C/E
+        device_type = config_entry.data.get("device_type", "")
+        self._supports_pv = device_supports_pv(device_type)
         
         # Track last fetch times for tiered polling
         self._last_pv_fetch: float = 0.0  # Medium interval
@@ -170,8 +176,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         slow_interval = self._get_slow_interval()
         request_delay = self._get_request_delay()
         
-        # PV data - medium interval
-        include_pv = (current_time - self._last_pv_fetch) >= medium_interval
+        # PV data - medium interval, but only if device supports PV (Venus D only)
+        include_pv = (
+            self._supports_pv 
+            and (current_time - self._last_pv_fetch) >= medium_interval
+        )
         
         # WiFi and battery details - slow interval
         include_slow = (current_time - self._last_slow_fetch) >= slow_interval

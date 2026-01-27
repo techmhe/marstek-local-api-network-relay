@@ -188,11 +188,29 @@ class MockMarstekDevice:
             return handle_es_get_mode(request_id, src, state)
 
         elif method == "PV.GetStatus":
-            pv_state = {
-                "pv_power": state.get("pv_power", 0),
-                "pv_voltage": state.get("pv_voltage", 0),
-                "pv_current": state.get("pv_current", 0),
-            }
+            # Per API docs (Chapter 4): Only Venus D supports PV, not Venus C/E
+            device_type = self.config.get("device", "").lower()
+            if "venusd" not in device_type and "venus d" not in device_type:
+                # Return error for unsupported method on Venus C/E devices
+                return {
+                    "id": request_id,
+                    "src": src,
+                    "error": {
+                        "code": -32601,
+                        "message": "Method not found",
+                    },
+                }
+            pv_channels = self.config.get("pv_channels")
+            if isinstance(pv_channels, list) and pv_channels:
+                pv_state = {
+                    "pv_channels": pv_channels,
+                }
+            else:
+                pv_state = {
+                    "pv_power": state.get("pv_power", 0),
+                    "pv_voltage": state.get("pv_voltage", 0),
+                    "pv_current": state.get("pv_current", 0),
+                }
             return handle_pv_get_status(request_id, src, pv_state)
 
         elif method == "Wifi.GetStatus":

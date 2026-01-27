@@ -625,11 +625,14 @@ async def async_setup_entry(
             MarstekLoadEnergySensor(coordinator, device_info, config_entry)
         )
 
-    # Only register PV sensors when data keys are present to avoid permanent unavailable entities
+    # Only register PV sensors when data is actually available
+    # Per API docs (Chapter 4): Only Venus D supports PV, Venus C/E do NOT
+    # The coordinator and data parser only include PV keys for supporting devices
     for pv_channel in range(1, 5):
         for metric_type in ("power", "voltage", "current", "state"):
             sensor_key = f"pv{pv_channel}_{metric_type}"
-            if sensor_key in data_keys:
+            # Check both key presence AND non-None value to avoid Unknown entities
+            if sensor_key in data_keys and coordinator.data.get(sensor_key) is not None:
                 sensors.append(
                     MarstekPVSensor(
                         coordinator,
