@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 import time
 from typing import Any
@@ -14,13 +14,16 @@ from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_FAILURE_THRESHOLD,
     CONF_POLL_INTERVAL_FAST,
     CONF_POLL_INTERVAL_MEDIUM,
     CONF_POLL_INTERVAL_SLOW,
     CONF_REQUEST_DELAY,
     CONF_REQUEST_TIMEOUT,
+    DEFAULT_FAILURE_THRESHOLD,
     DEFAULT_POLL_INTERVAL_FAST,
     DEFAULT_POLL_INTERVAL_MEDIUM,
     DEFAULT_POLL_INTERVAL_SLOW,
@@ -66,6 +69,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         
         # Track if this is the initial setup (use faster delays)
         self._is_initial_setup = is_initial_setup
+        
+        # Diagnostics tracking - exposed for diagnostics.py
+        self.last_update_success_time: datetime | None = None
+        self.last_update_attempt_time: datetime | None = None
+        self.consecutive_failures: int = 0
         
         # Get configured fast polling interval
         fast_interval = config_entry.options.get(
@@ -125,6 +133,14 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT
         )
 
+    def _get_failure_threshold(self) -> int:
+        """Get failure threshold from options (failures before entities become unavailable)."""
+        return int(
+            self.config_entry.options.get(
+                CONF_FAILURE_THRESHOLD, DEFAULT_FAILURE_THRESHOLD
+            )
+        )
+
     @property
     def device_ip(self) -> str:
         """Get current device IP from config entry (supports dynamic IP updates)."""
@@ -141,6 +157,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         - Slow: Wifi.GetStatus, Bat.GetStatus - rarely changes
         """
         current_ip = self.device_ip
+        self.last_update_attempt_time = dt_util.now()
         _LOGGER.debug("Start polling device: %s", current_ip)
 
         if self.udp_client.is_polling_paused(current_ip):
@@ -252,17 +269,42 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 include_slow,
             )
 
+            # Update success tracking
+            self.last_update_success_time = dt_util.now()
+            self.consecutive_failures = 0
+
             return device_status  # noqa: TRY300
         except (TimeoutError, OSError, ValueError) as err:
             # Connection failed - Scanner will detect IP changes and update config entry
+            self.consecutive_failures += 1
+            failure_threshold = self._get_failure_threshold()
+            
+            if self.consecutive_failures >= failure_threshold:
+                _LOGGER.warning(
+                    "Device %s status request failed (attempt #%d, threshold: %d): %s. "
+                    "Entities will become unavailable. "
+                    "Scanner will detect IP changes automatically",
+                    current_ip,
+                    self.consecutive_failures,
+                    failure_threshold,
+                    err,
+                )
+                # Mark update as failed so entities become unavailable
+                raise UpdateFailed(
+                    f"Polling failed for {current_ip} (attempt #{self.consecutive_failures}): {err}"
+                ) from err
+            
+            # Below threshold - log warning but return cached data to keep entities available
             _LOGGER.warning(
-                "Device %s status request failed: %s. "
-                "Scanner will detect IP changes automatically",
+                "Device %s status request failed (attempt #%d of %d): %s. "
+                "Keeping entities available with cached data",
                 current_ip,
+                self.consecutive_failures,
+                failure_threshold,
                 err,
             )
-            # Mark update as failed so entities become unavailable; coordinator keeps last data
-            raise UpdateFailed(f"Polling failed for {current_ip}") from err
+            # Return cached data - entities stay available
+            return self.data or {}
 
     async def _async_config_entry_updated(
         self, hass: HomeAssistant, entry: ConfigEntry

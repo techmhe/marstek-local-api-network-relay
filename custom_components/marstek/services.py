@@ -20,6 +20,7 @@ from .const import (
     API_MODE_MANUAL,
     API_MODE_PASSIVE,
     CMD_ES_SET_MODE,
+    DATA_UDP_CLIENT,
     DEFAULT_UDP_PORT,
     DOMAIN,
     WEEKDAY_MAP,
@@ -165,10 +166,11 @@ def _get_entry_and_client_from_device_id(
     for entry_id in device.config_entries:
         entry = hass.config_entries.async_get_entry(entry_id)
         if entry and entry.domain == DOMAIN and entry.state == ConfigEntryState.LOADED:
-            runtime_data = entry.runtime_data
             host = entry.data.get(CONF_HOST)
-            if host:
-                return entry, runtime_data.udp_client, host
+            # Get shared UDP client from hass.data
+            udp_client = hass.data.get(DOMAIN, {}).get(DATA_UDP_CLIENT)
+            if host and udp_client:
+                return entry, udp_client, host
 
     raise HomeAssistantError(
         translation_domain=DOMAIN,

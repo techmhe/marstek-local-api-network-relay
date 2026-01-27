@@ -45,6 +45,8 @@ def mock_coordinator() -> MagicMock:
     coordinator.last_update_success = True
     coordinator.last_exception = None
     coordinator.last_update_success_time = datetime(2026, 1, 27, 10, 30, 0, tzinfo=timezone.utc)
+    coordinator.last_update_attempt_time = datetime(2026, 1, 27, 10, 30, 0, tzinfo=timezone.utc)
+    coordinator.consecutive_failures = 0
     return coordinator
 
 
@@ -98,7 +100,11 @@ async def test_async_get_config_entry_diagnostics(
     # Verify coordinator section has timestamps
     assert "last_update_success_time" in result["coordinator"]
     assert "time_since_last_success" in result["coordinator"]
+    assert "last_update_attempt_time" in result["coordinator"]
+    assert "time_since_last_attempt" in result["coordinator"]
+    assert "consecutive_failures" in result["coordinator"]
     assert "diagnostics_generated_at" in result["coordinator"]
+    assert result["coordinator"]["consecutive_failures"] == 0
 
 
 async def test_diagnostics_redacts_sensitive_data(
@@ -145,11 +151,13 @@ async def test_diagnostics_with_exception(
 
     mock_runtime_data.coordinator.last_update_success = False
     mock_runtime_data.coordinator.last_exception = update_failed
+    mock_runtime_data.coordinator.consecutive_failures = 5
     mock_config_entry.runtime_data = mock_runtime_data
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
     assert result["coordinator"]["last_update_success"] is False
+    assert result["coordinator"]["consecutive_failures"] == 5
 
     # Verify exception structure
     exc_info = result["last_exception"]
@@ -208,11 +216,16 @@ async def test_diagnostics_without_last_update_time(
     mock_runtime_data: MagicMock,
 ) -> None:
     """Test diagnostics when coordinator has no last_update_success_time."""
-    # Simulate coordinator without the attribute
+    # Simulate coordinator without the attributes (e.g., older coordinator version)
     del mock_runtime_data.coordinator.last_update_success_time
+    del mock_runtime_data.coordinator.last_update_attempt_time
+    del mock_runtime_data.coordinator.consecutive_failures
     mock_config_entry.runtime_data = mock_runtime_data
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
     assert result["coordinator"]["last_update_success_time"] is None
     assert result["coordinator"]["time_since_last_success"] is None
+    assert result["coordinator"]["last_update_attempt_time"] is None
+    assert result["coordinator"]["time_since_last_attempt"] is None
+    assert result["coordinator"]["consecutive_failures"] == 0

@@ -7,6 +7,7 @@ from typing import Final
 from homeassistant.const import Platform
 
 DOMAIN: Final = "marstek"
+DATA_UDP_CLIENT: Final = "udp_client"  # Key for shared UDP client in hass.data
 
 PLATFORMS: Final[list[Platform]] = [
     Platform.SENSOR,
@@ -80,6 +81,7 @@ CONF_POLL_INTERVAL_MEDIUM: Final = "poll_interval_medium"
 CONF_POLL_INTERVAL_SLOW: Final = "poll_interval_slow"
 CONF_REQUEST_DELAY: Final = "request_delay"
 CONF_REQUEST_TIMEOUT: Final = "request_timeout"
+CONF_FAILURE_THRESHOLD: Final = "failure_threshold"
 
 # Default polling intervals
 DEFAULT_POLL_INTERVAL_FAST: Final = 30  # Real-time power data (ES.GetMode, ES.GetStatus, EM.GetStatus)
@@ -87,5 +89,6 @@ DEFAULT_POLL_INTERVAL_MEDIUM: Final = 60  # PV data - changes with sun
 DEFAULT_POLL_INTERVAL_SLOW: Final = 300  # WiFi and battery details - rarely change
 DEFAULT_REQUEST_DELAY: Final = 10.0  # Delay between API requests during polling
 DEFAULT_REQUEST_TIMEOUT: Final = 10.0  # Timeout for each API request
+DEFAULT_FAILURE_THRESHOLD: Final = 3  # Failures before entities become unavailable
 
 INITIAL_SETUP_REQUEST_DELAY: Final = 2.0  # Faster delay during first data fetch

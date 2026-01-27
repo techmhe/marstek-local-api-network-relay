@@ -16,7 +16,7 @@ from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.typing import ConfigType, TemplateVarsType
 
-from .const import DEFAULT_UDP_PORT, DOMAIN
+from .const import DATA_UDP_CLIENT, DEFAULT_UDP_PORT, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,15 +102,14 @@ async def async_call_action_from_config(
     power, enable = _get_action_parameters(action_type)
     command = _build_set_mode_command(power, enable)
 
-    runtime_data = _get_runtime_data_from_device_id(hass, device_id)
-    if not runtime_data:
+    # Get shared UDP client from hass.data
+    udp_client = hass.data.get(DOMAIN, {}).get(DATA_UDP_CLIENT)
+    if not udp_client:
         raise InvalidDeviceAutomationConfig(
             translation_domain=DOMAIN,
             translation_key="config_invalid",
             translation_placeholders={"device_id": device_id},
         )
-
-    udp_client = runtime_data.udp_client
 
     await udp_client.pause_polling(host)
     try:

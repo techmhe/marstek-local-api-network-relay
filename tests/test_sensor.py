@@ -40,6 +40,10 @@ async def test_coordinator_failure_marks_entities_unavailable(
 ) -> None:
     """Test coordinator failure raises UpdateFailed, entities become unavailable."""
     mock_config_entry.add_to_hass(hass)
+    # Set failure threshold to 1 so entities become unavailable immediately
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={"failure_threshold": 1}
+    )
 
     client = create_mock_client(status=TimeoutError("poll failed"))
 

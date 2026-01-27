@@ -133,8 +133,12 @@ async def test_coordinator_polling_paused_returns_empty_dict_when_no_cache(
 async def test_coordinator_no_fresh_data_raises_update_failed(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
-    """Test that no fresh data raises UpdateFailed to keep previous values."""
+    """Test that no fresh data raises UpdateFailed after threshold is reached."""
     mock_config_entry.add_to_hass(hass)
+    # Set failure threshold to 1 (immediate failure)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={"failure_threshold": 1}
+    )
     mock_udp_client.get_device_status = AsyncMock(
         return_value={
             "battery_soc": 0,
@@ -158,8 +162,12 @@ async def test_coordinator_no_fresh_data_raises_update_failed(
 async def test_coordinator_timeout_error_raises_update_failed(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
-    """Test that TimeoutError raises UpdateFailed."""
+    """Test that TimeoutError raises UpdateFailed after threshold is reached."""
     mock_config_entry.add_to_hass(hass)
+    # Set failure threshold to 1 (immediate failure)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={"failure_threshold": 1}
+    )
     mock_udp_client.get_device_status = AsyncMock(side_effect=TimeoutError("timeout"))
 
     coordinator = MarstekDataUpdateCoordinator(
@@ -176,8 +184,12 @@ async def test_coordinator_timeout_error_raises_update_failed(
 async def test_coordinator_os_error_raises_update_failed(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
-    """Test that OSError raises UpdateFailed."""
+    """Test that OSError raises UpdateFailed after threshold is reached."""
     mock_config_entry.add_to_hass(hass)
+    # Set failure threshold to 1 (immediate failure)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={"failure_threshold": 1}
+    )
     mock_udp_client.get_device_status = AsyncMock(
         side_effect=OSError("Network unreachable")
     )
@@ -196,8 +208,12 @@ async def test_coordinator_os_error_raises_update_failed(
 async def test_coordinator_value_error_raises_update_failed(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
-    """Test that ValueError raises UpdateFailed."""
+    """Test that ValueError raises UpdateFailed after threshold is reached."""
     mock_config_entry.add_to_hass(hass)
+    # Set failure threshold to 1 (immediate failure)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={"failure_threshold": 1}
+    )
     mock_udp_client.get_device_status = AsyncMock(side_effect=ValueError("Invalid data"))
 
     coordinator = MarstekDataUpdateCoordinator(
@@ -209,6 +225,39 @@ async def test_coordinator_value_error_raises_update_failed(
 
     with pytest.raises(UpdateFailed, match="Polling failed"):
         await coordinator._async_update_data()
+
+
+async def test_coordinator_failure_threshold_keeps_entities_available(
+    hass: HomeAssistant, mock_config_entry, mock_udp_client
+):
+    """Test that failures below threshold keep entities available with cached data."""
+    # Use default threshold of 3
+    mock_config_entry.add_to_hass(hass)
+    mock_udp_client.get_device_status = AsyncMock(side_effect=TimeoutError("timeout"))
+
+    coordinator = MarstekDataUpdateCoordinator(
+        hass,
+        mock_config_entry,
+        mock_udp_client,
+        "1.2.3.4",
+    )
+    # Set some cached data
+    coordinator.data = {"battery_soc": 50, "battery_power": 100}
+
+    # First failure - should return cached data, not raise
+    result = await coordinator._async_update_data()
+    assert result == {"battery_soc": 50, "battery_power": 100}
+    assert coordinator.consecutive_failures == 1
+
+    # Second failure - still below threshold
+    result = await coordinator._async_update_data()
+    assert result == {"battery_soc": 50, "battery_power": 100}
+    assert coordinator.consecutive_failures == 2
+
+    # Third failure - reaches threshold, should raise UpdateFailed
+    with pytest.raises(UpdateFailed, match="Polling failed"):
+        await coordinator._async_update_data()
+    assert coordinator.consecutive_failures == 3
 
 
 async def test_coordinator_config_entry_updated_ip_unchanged(

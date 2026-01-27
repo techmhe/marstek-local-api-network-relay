@@ -6,7 +6,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.marstek.const import DOMAIN
+from custom_components.marstek.const import DATA_UDP_CLIENT, DOMAIN
 
 from tests.conftest import create_mock_client, patch_marstek_integration
 
@@ -100,3 +100,165 @@ async def test_services_registered_during_setup(
     assert hass.services.has_service(DOMAIN, "set_passive_mode")
     assert hass.services.has_service(DOMAIN, "set_manual_schedule")
     assert hass.services.has_service(DOMAIN, "clear_manual_schedules")
+
+
+async def test_multiple_entries_share_udp_client(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test that multiple config entries share a single UDP client."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client(
+        status={"device_mode": "auto", "battery_soc": 50, "battery_power": 100}
+    )
+
+    with patch_marstek_integration(client=client):
+        # Setup first entry
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert mock_config_entry.state == ConfigEntryState.LOADED
+        assert DOMAIN in hass.data
+        assert DATA_UDP_CLIENT in hass.data[DOMAIN]
+
+        # Store reference to the shared client
+        shared_client = hass.data[DOMAIN][DATA_UDP_CLIENT]
+
+        # Create and add second entry AFTER first is setup
+        second_entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Second Device",
+            unique_id="bb:cc:dd:ee:ff:00",
+            data={
+                "host": "5.6.7.8",
+                "ble_mac": "BB:CC:DD:EE:FF:00",
+                "device_type": "Venus v3",
+                "version": 145,
+            },
+        )
+        second_entry.add_to_hass(hass)
+
+        # Setup second entry
+        await hass.config_entries.async_setup(second_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert second_entry.state == ConfigEntryState.LOADED
+        # Verify both entries use the SAME UDP client instance
+        assert hass.data[DOMAIN][DATA_UDP_CLIENT] is shared_client
+
+        # Cleanup
+        await hass.config_entries.async_unload(mock_config_entry.entry_id)
+        await hass.config_entries.async_unload(second_entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def test_partial_unload_preserves_shared_client(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test unloading one entry while another exists preserves the shared client."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client(
+        status={"device_mode": "auto", "battery_soc": 50, "battery_power": 100}
+    )
+
+    with patch_marstek_integration(client=client):
+        # Setup first entry
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        # Store reference to verify it persists
+        shared_client = hass.data[DOMAIN][DATA_UDP_CLIENT]
+
+        # Create and add second entry AFTER first is setup
+        second_entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Second Device",
+            unique_id="bb:cc:dd:ee:ff:00",
+            data={
+                "host": "5.6.7.8",
+                "ble_mac": "BB:CC:DD:EE:FF:00",
+                "device_type": "Venus v3",
+                "version": 145,
+            },
+        )
+        second_entry.add_to_hass(hass)
+
+        # Setup second entry
+        await hass.config_entries.async_setup(second_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert mock_config_entry.state == ConfigEntryState.LOADED
+        assert second_entry.state == ConfigEntryState.LOADED
+
+        # Unload first entry only
+        await hass.config_entries.async_unload(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert mock_config_entry.state == ConfigEntryState.NOT_LOADED
+        assert second_entry.state == ConfigEntryState.LOADED
+
+        # Shared client should still exist for the remaining entry
+        assert DOMAIN in hass.data
+        assert DATA_UDP_CLIENT in hass.data[DOMAIN]
+        assert hass.data[DOMAIN][DATA_UDP_CLIENT] is shared_client
+
+        # Services should still be registered (other entry still loaded)
+        assert hass.services.has_service(DOMAIN, "set_passive_mode")
+
+        # Cleanup
+        await hass.config_entries.async_unload(second_entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def test_last_entry_unload_cleans_up_shared_client(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test that unloading the last entry cleans up the shared UDP client."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client(
+        status={"device_mode": "auto", "battery_soc": 50, "battery_power": 100}
+    )
+
+    with patch_marstek_integration(client=client):
+        # Setup first entry
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        # Create and add second entry AFTER first is setup
+        second_entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="Second Device",
+            unique_id="bb:cc:dd:ee:ff:00",
+            data={
+                "host": "5.6.7.8",
+                "ble_mac": "BB:CC:DD:EE:FF:00",
+                "device_type": "Venus v3",
+                "version": 145,
+            },
+        )
+        second_entry.add_to_hass(hass)
+
+        # Setup second entry
+        await hass.config_entries.async_setup(second_entry.entry_id)
+        await hass.async_block_till_done()
+
+        # Unload first entry
+        await hass.config_entries.async_unload(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        # Client should still exist
+        assert DOMAIN in hass.data
+        assert DATA_UDP_CLIENT in hass.data[DOMAIN]
+
+        # Unload last entry
+        await hass.config_entries.async_unload(second_entry.entry_id)
+        await hass.async_block_till_done()
+
+        # UDP client should be cleaned up (either key removed or no client in it)
+        marstek_data = hass.data.get(DOMAIN)
+        if marstek_data is not None:
+            assert DATA_UDP_CLIENT not in marstek_data
+        # Services should be unregistered
+        assert not hass.services.has_service(DOMAIN, "set_passive_mode")

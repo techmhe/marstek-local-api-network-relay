@@ -38,11 +38,13 @@ except ImportError:
             macaddress: str
 
 from .const import (
+    CONF_FAILURE_THRESHOLD,
     CONF_POLL_INTERVAL_FAST,
     CONF_POLL_INTERVAL_MEDIUM,
     CONF_POLL_INTERVAL_SLOW,
     CONF_REQUEST_DELAY,
     CONF_REQUEST_TIMEOUT,
+    DEFAULT_FAILURE_THRESHOLD,
     DEFAULT_POLL_INTERVAL_FAST,
     DEFAULT_POLL_INTERVAL_MEDIUM,
     DEFAULT_POLL_INTERVAL_SLOW,
@@ -484,6 +486,9 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
         current_timeout = self.config_entry.options.get(
             CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT
         )
+        current_failure_threshold = self.config_entry.options.get(
+            CONF_FAILURE_THRESHOLD, DEFAULT_FAILURE_THRESHOLD
+        )
 
         return self.async_show_form(
             step_id="init",
@@ -546,6 +551,17 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
                             max=60.0,
                             step=1.0,
                             unit_of_measurement="seconds",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_FAILURE_THRESHOLD,
+                        default=current_failure_threshold,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=1,
+                            max=10,
+                            step=1,
                             mode=NumberSelectorMode.BOX,
                         )
                     ),
