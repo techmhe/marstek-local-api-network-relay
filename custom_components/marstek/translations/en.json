@@ -22,6 +22,16 @@
           "host": "IP address of your Marstek device",
           "port": "UDP port (default: 30000)"
         }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect Marstek Device",
+        "description": "The device at {host} is not responding. Please verify the IP address or enter a new one if it has changed.",
+        "data": {
+          "host": "IP address"
+        },
+        "data_description": {
+          "host": "Current or updated IP address of your Marstek device"
+        }
       }
     },
     "error": {
@@ -34,7 +44,8 @@
     },
     "abort": {
       "already_configured": "Device is already configured",
-      "invalid_discovery_info": "Invalid discovery information received from the device"
+      "invalid_discovery_info": "Invalid discovery information received from the device",
+      "reauth_successful": "Device reconnected successfully"
     }
   },
   "options": {

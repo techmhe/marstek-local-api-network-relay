@@ -18,6 +18,7 @@ from homeassistant.const import (
     EntityCategory,
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
+    UnitOfEnergy,
     UnitOfPower,
     UnitOfTemperature,
 )
@@ -138,6 +139,7 @@ class MarstekBatterySensor(MarstekSensor):
 
     _attr_translation_key = "battery_level"
     _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_device_class = SensorDeviceClass.BATTERY
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:battery"
 
@@ -471,7 +473,7 @@ class MarstekTotalPVEnergySensor(MarstekSensor):
     """Representation of a Marstek total PV energy sensor."""
 
     _attr_translation_key = "total_pv_energy"
-    _attr_native_unit_of_measurement = "Wh"
+    _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:solar-power"
@@ -497,7 +499,7 @@ class MarstekGridOutputEnergySensor(MarstekSensor):
     """Representation of a Marstek grid output (export) energy sensor."""
 
     _attr_translation_key = "total_grid_output_energy"
-    _attr_native_unit_of_measurement = "Wh"
+    _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:transmission-tower-export"
@@ -523,7 +525,7 @@ class MarstekGridInputEnergySensor(MarstekSensor):
     """Representation of a Marstek grid input (import) energy sensor."""
 
     _attr_translation_key = "total_grid_input_energy"
-    _attr_native_unit_of_measurement = "Wh"
+    _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:transmission-tower-import"
@@ -549,7 +551,7 @@ class MarstekLoadEnergySensor(MarstekSensor):
     """Representation of a Marstek total load energy sensor."""
 
     _attr_translation_key = "total_load_energy"
-    _attr_native_unit_of_measurement = "Wh"
+    _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:home-lightning-bolt"

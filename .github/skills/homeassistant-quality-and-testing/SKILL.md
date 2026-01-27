@@ -34,6 +34,35 @@ Use this skill to align changes with Home Assistant best practices and the Integ
 - Keep `unique_id` stable and predictable (e.g., `{ble_mac}_{key}`); changing it breaks history and customizations.
 - Only create entities for data that actually exists to avoid permanent `unavailable` noise.
 
+## Entity Best Practices
+- Use constants from `homeassistant.const` for units:
+  - `UnitOfEnergy.WATT_HOUR` not `"Wh"`
+  - `UnitOfPower.WATT` not `"W"`
+  - `UnitOfTemperature.CELSIUS` not `"°C"`
+- Use device classes from `homeassistant.components.sensor`:
+  - `SensorDeviceClass.BATTERY` for battery level sensors
+  - `SensorDeviceClass.POWER` for power sensors
+  - `SensorDeviceClass.ENERGY` for energy sensors
+  - `SensorDeviceClass.TEMPERATURE` for temperature sensors
+- Use state classes appropriately:
+  - `SensorStateClass.MEASUREMENT` for instantaneous values (power, temperature)
+  - `SensorStateClass.TOTAL_INCREASING` for cumulative energy counters
+- Use `EntityCategory.DIAGNOSTIC` for non-primary sensors (WiFi RSSI, temperatures)
+
+## Diagnostics (Gold Quality Scale)
+- Create `diagnostics.py` with `async_get_config_entry_diagnostics` function
+- Return a dict with: entry data, device_info, coordinator_data, last_update_success, last_exception
+- Redact sensitive data before returning:
+  - IPs, MACs, SSIDs, tokens, passwords
+  - Use a `TO_REDACT` list pattern for consistency:
+    ```python
+    TO_REDACT = {"host", "ip", "mac", "ble_mac", "wifi_mac", "wifi_name", "SSID", "bleMac"}
+    
+    def _redact_dict(data: dict) -> dict:
+        return {k: "**REDACTED**" if k in TO_REDACT else v for k, v in data.items()}
+    ```
+- Test diagnostics with snapshot tests and verify redaction
+
 ## Manifest & Metadata
 - Pin requirements (e.g., `pymarstek==x.y.z`) to avoid breaking upgrades.
 - Set `version`, `config_flow: true`, `iot_class`, and `codeowners`; keep documentation and issue tracker URLs current.

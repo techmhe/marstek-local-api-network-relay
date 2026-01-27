@@ -374,6 +374,49 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Handle discovery with unique_id (updates existing entries or creates new)
         return await self._async_handle_discovery_with_unique_id()
 
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult:
+        """Handle reauth when device becomes unreachable."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Confirm reauth dialog."""
+        errors: dict[str, str] = {}
+        reauth_entry = self._get_reauth_entry()
+
+        if user_input is not None:
+            host = user_input.get(CONF_HOST)
+            port = reauth_entry.data.get(CONF_PORT, DEFAULT_UDP_PORT)
+
+            try:
+                device_info = await get_device_info(host=host, port=port)
+                if device_info:
+                    self.hass.config_entries.async_update_entry(
+                        reauth_entry,
+                        data={**reauth_entry.data, CONF_HOST: host},
+                    )
+                    await self.hass.config_entries.async_reload(reauth_entry.entry_id)
+                    return self.async_abort(reason="reauth_successful")
+                errors["base"] = "cannot_connect"
+            except (OSError, TimeoutError, ValueError):
+                errors["base"] = "cannot_connect"
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_HOST, default=reauth_entry.data.get(CONF_HOST, "")
+                    ): cv.string
+                }
+            ),
+            errors=errors,
+            description_placeholders={"host": reauth_entry.data.get(CONF_HOST, "")},
+        )
+
     async def _async_handle_discovery_with_unique_id(
         self,
     ) -> config_entries.ConfigFlowResult:

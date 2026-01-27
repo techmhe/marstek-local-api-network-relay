@@ -24,7 +24,78 @@ Use this skill when adding or adjusting setup flows, discovery handlers, options
 - `async_step_user`: show form when `user_input is None`; on submit, validate connectivity; return errors with keys (`cannot_connect`, `invalid_auth`, `already_configured`).
 - `async_step_dhcp` / `async_step_zeroconf` / `async_step_integration_discovery`: deduplicate via MAC/unique ID; if existing entry with new host, update data and abort with `already_configured`.
 - `async_step_confirm`: for discovery flows, prefill known values and ask user to confirm.
-- `async_step_reauth`: ask only for the credential that changed; update entry and finish.
+
+## Reauth Flow Pattern
+
+Reauth handles authentication/connection failures gracefully, allowing users to update credentials or IP addresses without removing the integration.
+
+### Implementation Steps
+
+1. **Entry point**: `async_step_reauth(entry_data)` - Called when reauth is triggered
+2. **Confirm step**: `async_step_reauth_confirm(user_input)` - Show form, validate, update entry
+
+### Code Pattern
+
+```python
+async def async_step_reauth(
+    self, entry_data: dict[str, Any]
+) -> ConfigFlowResult:
+    """Handle reauth when device becomes unreachable."""
+    return await self.async_step_reauth_confirm()
+
+async def async_step_reauth_confirm(
+    self, user_input: dict[str, Any] | None = None
+) -> ConfigFlowResult:
+    """Confirm reauth dialog."""
+    errors: dict[str, str] = {}
+    reauth_entry = self._get_reauth_entry()
+
+    if user_input is not None:
+        host = user_input.get(CONF_HOST)
+        try:
+            device_info = await get_device_info(host=host, port=port)
+            if device_info:
+                self.hass.config_entries.async_update_entry(
+                    reauth_entry,
+                    data={**reauth_entry.data, CONF_HOST: host},
+                )
+                await self.hass.config_entries.async_reload(reauth_entry.entry_id)
+                return self.async_abort(reason="reauth_successful")
+            errors["base"] = "cannot_connect"
+        except (OSError, TimeoutError):
+            errors["base"] = "cannot_connect"
+
+    return self.async_show_form(
+        step_id="reauth_confirm",
+        data_schema=vol.Schema({vol.Required(CONF_HOST): cv.string}),
+        errors=errors,
+        description_placeholders={"host": reauth_entry.data.get(CONF_HOST, "")},
+    )
+```
+
+### Triggering Reauth
+
+From coordinator or setup when connection fails repeatedly:
+```python
+entry.async_start_reauth(hass)
+```
+
+### Required Translations
+
+Add to `strings.json` and `translations/en.json`:
+```json
+"reauth_confirm": {
+  "title": "Reconnect Device",
+  "description": "The device at {host} is not responding.",
+  "data": {"host": "IP address"}
+}
+```
+And abort reason:
+```json
+"abort": {
+  "reauth_successful": "Device reconnected successfully"
+}
+```
 
 ## Options Flow
 - Implement `async_get_options_flow` to return an `OptionsFlowHandler`.

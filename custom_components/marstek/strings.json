@@ -2,7 +2,8 @@
   "config": {
     "abort": {
       "already_configured": "Device is already configured",
-      "invalid_discovery_info": "Invalid discovery information received from the device"
+      "invalid_discovery_info": "Invalid discovery information received from the device",
+      "reauth_successful": "Device reconnected successfully"
     },
     "error": {
       "cannot_connect": "Unable to connect to the device",
@@ -21,7 +22,7 @@
           "device": "Choose the Marstek device you want to add"
         },
         "description": "Select your Marstek energy storage device from the discovered devices",
-        "title": "Marstek energy storage"
+        "title": "Marstek Energy Storage"
       },
       "manual": {
         "title": "Manual device setup",
@@ -33,6 +34,16 @@
         "data_description": {
           "host": "IP address of your Marstek device",
           "port": "UDP port (default: 30000)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect Marstek Device",
+        "description": "The device at {host} is not responding. Please verify the IP address or enter a new one if it has changed.",
+        "data": {
+          "host": "IP address"
+        },
+        "data_description": {
+          "host": "Current or updated IP address of your Marstek device"
         }
       }
     }
