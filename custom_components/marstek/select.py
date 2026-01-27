@@ -81,7 +81,6 @@ class MarstekOperatingModeSelect(
 
     _attr_has_entity_name = True
     _attr_translation_key = "operating_mode"
-    _attr_icon = "mdi:cog"
 
     def __init__(
         self,

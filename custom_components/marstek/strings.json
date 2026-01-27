@@ -114,6 +114,72 @@
       },
       "total_load_energy": {
         "name": "Total load energy"
+      },
+      "device_ip": {
+        "name": "Device IP"
+      },
+      "device_version": {
+        "name": "Device version"
+      },
+      "wifi_name": {
+        "name": "Wi-Fi name"
+      },
+      "ble_mac": {
+        "name": "BLE MAC"
+      },
+      "wifi_mac": {
+        "name": "Wi-Fi MAC"
+      },
+      "mac": {
+        "name": "MAC address"
+      },
+      "pv1_power": {
+        "name": "PV1 power"
+      },
+      "pv1_voltage": {
+        "name": "PV1 voltage"
+      },
+      "pv1_current": {
+        "name": "PV1 current"
+      },
+      "pv1_state": {
+        "name": "PV1 state"
+      },
+      "pv2_power": {
+        "name": "PV2 power"
+      },
+      "pv2_voltage": {
+        "name": "PV2 voltage"
+      },
+      "pv2_current": {
+        "name": "PV2 current"
+      },
+      "pv2_state": {
+        "name": "PV2 state"
+      },
+      "pv3_power": {
+        "name": "PV3 power"
+      },
+      "pv3_voltage": {
+        "name": "PV3 voltage"
+      },
+      "pv3_current": {
+        "name": "PV3 current"
+      },
+      "pv3_state": {
+        "name": "PV3 state"
+      },
+      "pv4_power": {
+        "name": "PV4 power"
+      },
+      "pv4_voltage": {
+        "name": "PV4 voltage"
+      },
+      "pv4_current": {
+        "name": "PV4 current"
+      },
+      "pv4_state": {
+        "name": "PV4 state"
       }
     },
     "select": {
@@ -214,6 +280,23 @@
           "description": "The Marstek device to refresh. When omitted, all devices are refreshed."
         }
       }
+    }
+  },
+  "exceptions": {
+    "invalid_mode": {
+      "message": "Invalid operating mode: {mode}"
+    },
+    "no_host_configured": {
+      "message": "Device IP address not configured"
+    },
+    "mode_change_failed": {
+      "message": "Failed to set operating mode to {mode}: {error}"
+    },
+    "invalid_device": {
+      "message": "Device {device_id} not found"
+    },
+    "command_failed": {
+      "message": "Failed to execute command: {error}"
     }
   }
 }

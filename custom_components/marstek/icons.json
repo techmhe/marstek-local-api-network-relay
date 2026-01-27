@@ -1,0 +1,122 @@
+{
+  "entity": {
+    "sensor": {
+      "battery_level": {
+        "default": "mdi:battery"
+      },
+      "grid_power": {
+        "default": "mdi:flash"
+      },
+      "device_ip": {
+        "default": "mdi:ip-network"
+      },
+      "device_version": {
+        "default": "mdi:information"
+      },
+      "wifi_name": {
+        "default": "mdi:wifi"
+      },
+      "ble_mac": {
+        "default": "mdi:bluetooth"
+      },
+      "wifi_mac": {
+        "default": "mdi:wifi"
+      },
+      "mac": {
+        "default": "mdi:network"
+      },
+      "device_mode": {
+        "default": "mdi:cog"
+      },
+      "battery_status": {
+        "default": "mdi:battery"
+      },
+      "pv1_power": {
+        "default": "mdi:solar-power"
+      },
+      "pv1_voltage": {
+        "default": "mdi:flash"
+      },
+      "pv1_current": {
+        "default": "mdi:current-ac"
+      },
+      "pv1_state": {
+        "default": "mdi:state-machine"
+      },
+      "pv2_power": {
+        "default": "mdi:solar-power"
+      },
+      "pv2_voltage": {
+        "default": "mdi:flash"
+      },
+      "pv2_current": {
+        "default": "mdi:current-ac"
+      },
+      "pv2_state": {
+        "default": "mdi:state-machine"
+      },
+      "pv3_power": {
+        "default": "mdi:solar-power"
+      },
+      "pv3_voltage": {
+        "default": "mdi:flash"
+      },
+      "pv3_current": {
+        "default": "mdi:current-ac"
+      },
+      "pv3_state": {
+        "default": "mdi:state-machine"
+      },
+      "pv4_power": {
+        "default": "mdi:solar-power"
+      },
+      "pv4_voltage": {
+        "default": "mdi:flash"
+      },
+      "pv4_current": {
+        "default": "mdi:current-ac"
+      },
+      "pv4_state": {
+        "default": "mdi:state-machine"
+      },
+      "wifi_rssi": {
+        "default": "mdi:wifi"
+      },
+      "ct_connection": {
+        "default": "mdi:connection"
+      },
+      "battery_temperature": {
+        "default": "mdi:thermometer"
+      },
+      "grid_total_power": {
+        "default": "mdi:transmission-tower"
+      },
+      "phase_a_power": {
+        "default": "mdi:flash"
+      },
+      "phase_b_power": {
+        "default": "mdi:flash"
+      },
+      "phase_c_power": {
+        "default": "mdi:flash"
+      },
+      "total_pv_energy": {
+        "default": "mdi:solar-power"
+      },
+      "total_grid_output_energy": {
+        "default": "mdi:transmission-tower-export"
+      },
+      "total_grid_input_energy": {
+        "default": "mdi:transmission-tower-import"
+      },
+      "total_load_energy": {
+        "default": "mdi:home-lightning-bolt"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "default": "mdi:cog"
+      }
+    }
+  }
+}

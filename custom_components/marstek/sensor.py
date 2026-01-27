@@ -141,7 +141,6 @@ class MarstekBatterySensor(MarstekSensor):
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:battery"
 
     def __init__(
         self,
@@ -166,7 +165,6 @@ class MarstekPowerSensor(MarstekSensor):
     _attr_translation_key = "grid_power"
     _attr_native_unit_of_measurement = UnitOfPower.WATT
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:flash"
 
     def __init__(
         self,
@@ -189,6 +187,7 @@ class MarstekDeviceInfoSensor(MarstekSensor):
     """Representation of a Marstek device info sensor."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
 
     def __init__(
         self,
@@ -200,22 +199,9 @@ class MarstekDeviceInfoSensor(MarstekSensor):
         """Initialize the device info sensor."""
         super().__init__(coordinator, device_info, info_type, config_entry)
         self._info_type = info_type
-        self._attr_icon = "mdi:information"
+        self._attr_translation_key = info_type
         self._attr_device_class = None
         self._attr_state_class = None
-
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        info_type_names = {
-            "device_ip": "Device IP",
-            "device_version": "Device version",
-            "wifi_name": "Wi-Fi name",
-            "ble_mac": "BLE MAC",
-            "wifi_mac": "Wi-Fi MAC",
-            "mac": "MAC address",
-        }
-        return info_type_names.get(self._info_type, self._info_type.replace("_", " "))
 
     @property
     def native_value(self) -> StateType:
@@ -242,7 +228,6 @@ class MarstekDeviceModeSensor(MarstekSensor):
     """Representation of a Marstek device mode sensor."""
 
     _attr_translation_key = "device_mode"
-    _attr_icon = "mdi:cog"
     _attr_device_class = None
     _attr_state_class = None
 
@@ -260,7 +245,6 @@ class MarstekBatteryStatusSensor(MarstekSensor):
     """Representation of a Marstek battery status sensor."""
 
     _attr_translation_key = "battery_status"
-    _attr_icon = "mdi:battery"
     _attr_device_class = None
     _attr_state_class = None
 
@@ -290,31 +274,24 @@ class MarstekPVSensor(MarstekSensor):
         super().__init__(coordinator, device_info, sensor_key, config_entry)
         self._pv_channel = pv_channel
         self._metric_type = metric_type
+        # Use translation_key for proper entity naming
+        self._attr_translation_key = sensor_key
 
         if metric_type == "power":
             self._attr_native_unit_of_measurement = UnitOfPower.WATT
-            self._attr_icon = "mdi:solar-power"
+            self._attr_device_class = SensorDeviceClass.POWER
         elif metric_type == "voltage":
             self._attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
-            self._attr_icon = "mdi:flash"
+            self._attr_device_class = SensorDeviceClass.VOLTAGE
         elif metric_type == "current":
             self._attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
-            self._attr_icon = "mdi:current-ac"
+            self._attr_device_class = SensorDeviceClass.CURRENT
         elif metric_type == "state":
-            self._attr_icon = "mdi:state-machine"
             self._attr_device_class = None
             self._attr_state_class = None
-        else:
-            self._attr_icon = "mdi:solar-panel"
 
         if metric_type != "state":
             self._attr_state_class = SensorStateClass.MEASUREMENT
-
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        metric_name = self._metric_type.replace("_", " ").title()
-        return f"PV{self._pv_channel} {metric_name}"
 
     @property
     def native_value(self) -> StateType:
@@ -335,7 +312,7 @@ class MarstekWiFiRSSISensor(MarstekSensor):
     _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:wifi"
+    _attr_entity_registry_enabled_default = False
 
     def __init__(
         self,
@@ -358,8 +335,8 @@ class MarstekCTConnectionSensor(MarstekSensor):
     """Representation of a Marstek CT connection status sensor."""
 
     _attr_translation_key = "ct_connection"
-    _attr_icon = "mdi:connection"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
     _attr_device_class = None
     _attr_state_class = None
 
@@ -390,7 +367,6 @@ class MarstekBatteryTemperatureSensor(MarstekSensor):
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:thermometer"
 
     def __init__(
         self,
@@ -416,7 +392,6 @@ class MarstekGridPowerSensor(MarstekSensor):
     _attr_native_unit_of_measurement = UnitOfPower.WATT
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:transmission-tower"
 
     def __init__(
         self,
@@ -441,7 +416,6 @@ class MarstekPhasePowerSensor(MarstekSensor):
     _attr_native_unit_of_measurement = UnitOfPower.WATT
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:flash"
 
     def __init__(
         self,
@@ -455,11 +429,6 @@ class MarstekPhasePowerSensor(MarstekSensor):
         super().__init__(coordinator, device_info, sensor_key, config_entry)
         self._phase = phase
         self._attr_translation_key = f"phase_{phase}_power"
-
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        return f"Phase {self._phase.upper()} Power"
 
     @property
     def native_value(self) -> StateType:
@@ -476,7 +445,6 @@ class MarstekTotalPVEnergySensor(MarstekSensor):
     _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_icon = "mdi:solar-power"
 
     def __init__(
         self,
@@ -502,7 +470,6 @@ class MarstekGridOutputEnergySensor(MarstekSensor):
     _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_icon = "mdi:transmission-tower-export"
 
     def __init__(
         self,
@@ -528,7 +495,6 @@ class MarstekGridInputEnergySensor(MarstekSensor):
     _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_icon = "mdi:transmission-tower-import"
 
     def __init__(
         self,
@@ -554,7 +520,6 @@ class MarstekLoadEnergySensor(MarstekSensor):
     _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_icon = "mdi:home-lightning-bolt"
 
     def __init__(
         self,
