@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -43,6 +44,7 @@ def mock_coordinator() -> MagicMock:
     }
     coordinator.last_update_success = True
     coordinator.last_exception = None
+    coordinator.last_update_success_time = datetime(2026, 1, 27, 10, 30, 0, tzinfo=timezone.utc)
     return coordinator
 
 
@@ -76,14 +78,27 @@ async def test_async_get_config_entry_diagnostics(
     # Verify structure
     assert "entry" in result
     assert "device_info" in result
+    assert "polling_config" in result
+    assert "coordinator" in result
     assert "coordinator_data" in result
-    assert "last_update_success" in result
     assert "last_exception" in result
 
     # Verify entry data
     assert result["entry"]["title"] == "Test Marstek Device"
-    assert result["last_update_success"] is True
+    assert result["coordinator"]["last_update_success"] is True
     assert result["last_exception"] is None
+
+    # Verify polling_config has expected keys with defaults
+    assert "poll_interval_fast" in result["polling_config"]
+    assert "poll_interval_medium" in result["polling_config"]
+    assert "poll_interval_slow" in result["polling_config"]
+    assert "request_delay" in result["polling_config"]
+    assert "request_timeout" in result["polling_config"]
+
+    # Verify coordinator section has timestamps
+    assert "last_update_success_time" in result["coordinator"]
+    assert "time_since_last_success" in result["coordinator"]
+    assert "diagnostics_generated_at" in result["coordinator"]
 
 
 async def test_diagnostics_redacts_sensitive_data(
@@ -123,14 +138,54 @@ async def test_diagnostics_with_exception(
     mock_runtime_data: MagicMock,
 ) -> None:
     """Test diagnostics when coordinator has an exception."""
+    # Create an exception with a cause (chained exception)
+    original_error = OSError("Network unreachable")
+    update_failed = Exception("Polling failed for 192.168.1.100")
+    update_failed.__cause__ = original_error
+
+    mock_runtime_data.coordinator.last_update_success = False
+    mock_runtime_data.coordinator.last_exception = update_failed
+    mock_config_entry.runtime_data = mock_runtime_data
+
+    result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    assert result["coordinator"]["last_update_success"] is False
+
+    # Verify exception structure
+    exc_info = result["last_exception"]
+    assert exc_info is not None
+    assert exc_info["type"] == "Exception"
+    assert "Polling failed" in exc_info["message"]
+    assert "traceback" in exc_info
+    assert isinstance(exc_info["traceback"], list)
+
+    # Verify cause is included
+    assert "cause" in exc_info
+    assert exc_info["cause"]["type"] == "OSError"
+    assert "Network unreachable" in exc_info["cause"]["message"]
+
+
+async def test_diagnostics_with_simple_exception(
+    hass: HomeAssistant,
+    mock_config_entry: MagicMock,
+    mock_runtime_data: MagicMock,
+) -> None:
+    """Test diagnostics when coordinator has a simple exception without cause."""
     mock_runtime_data.coordinator.last_update_success = False
     mock_runtime_data.coordinator.last_exception = TimeoutError("Connection timeout")
     mock_config_entry.runtime_data = mock_runtime_data
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
-    assert result["last_update_success"] is False
-    assert "Connection timeout" in result["last_exception"]
+    assert result["coordinator"]["last_update_success"] is False
+
+    exc_info = result["last_exception"]
+    assert exc_info is not None
+    assert exc_info["type"] == "TimeoutError"
+    assert "Connection timeout" in exc_info["message"]
+    assert "traceback" in exc_info
+    # No cause for simple exception
+    assert "cause" not in exc_info
 
 
 async def test_diagnostics_with_empty_coordinator_data(
@@ -145,3 +200,19 @@ async def test_diagnostics_with_empty_coordinator_data(
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
     assert result["coordinator_data"] == {}
+
+
+async def test_diagnostics_without_last_update_time(
+    hass: HomeAssistant,
+    mock_config_entry: MagicMock,
+    mock_runtime_data: MagicMock,
+) -> None:
+    """Test diagnostics when coordinator has no last_update_success_time."""
+    # Simulate coordinator without the attribute
+    del mock_runtime_data.coordinator.last_update_success_time
+    mock_config_entry.runtime_data = mock_runtime_data
+
+    result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    assert result["coordinator"]["last_update_success_time"] is None
+    assert result["coordinator"]["time_since_last_success"] is None
