@@ -36,14 +36,10 @@ from .const import (
     DATA_UDP_CLIENT,
     DEFAULT_UDP_PORT,
     DOMAIN,
-    MODE_AI,
-    MODE_AUTO,
-    MODE_MANUAL,
-    MODE_PASSIVE,
-    MODE_TO_API,
     OPERATING_MODES,
 )
 from .coordinator import MarstekDataUpdateCoordinator
+from .mode_config import build_mode_config
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -153,7 +149,7 @@ class MarstekOperatingModeSelect(
             )
 
         # Build mode configuration
-        config = self._build_mode_config(option)
+        config = build_mode_config(option)
 
         # Build command
         command = build_command(CMD_ES_SET_MODE, {"id": 0, "config": config})
@@ -206,42 +202,4 @@ class MarstekOperatingModeSelect(
         finally:
             await self._udp_client.resume_polling(host)
 
-    def _build_mode_config(self, mode: str) -> dict[str, Any]:
-        """Build the configuration payload for a mode."""
-        # Convert HA mode to API mode value
-        api_mode = MODE_TO_API.get(mode, mode)
-        
-        if mode == MODE_AUTO:
-            return {
-                "mode": api_mode,
-                "auto_cfg": {"enable": 1},
-            }
-        elif mode == MODE_AI:
-            return {
-                "mode": api_mode,
-                "ai_cfg": {"enable": 1},
-            }
-        elif mode == MODE_MANUAL:
-            # Default manual config - user can customize via services
-            return {
-                "mode": api_mode,
-                "manual_cfg": {
-                    "time_num": 0,
-                    "start_time": "00:00",
-                    "end_time": "23:59",
-                    "week_set": 127,  # All days
-                    "power": 0,
-                    "enable": 0,  # Disabled by default - user sets via service
-                },
-            }
-        elif mode == MODE_PASSIVE:
-            # Default passive config - use services to set power/duration
-            return {
-                "mode": api_mode,
-                "passive_cfg": {
-                    "power": 0,  # No power by default
-                    "cd_time": 3600,  # 1 hour default duration
-                },
-            }
-        else:
-            raise ValueError(f"Unknown mode: {mode}")
+    

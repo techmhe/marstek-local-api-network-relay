@@ -3,7 +3,8 @@
     "abort": {
       "already_configured": "Device is already configured",
       "invalid_discovery_info": "Invalid discovery information received from the device",
-      "reauth_successful": "Device reconnected successfully"
+      "reauth_successful": "Device reconnected successfully",
+      "reconfigure_successful": "Device reconfigured successfully"
     },
     "error": {
       "cannot_connect": "Unable to connect to the device",
@@ -45,6 +46,18 @@
         "data_description": {
           "host": "Current or updated IP address of your Marstek device"
         }
+      },
+      "reconfigure_confirm": {
+        "title": "Reconfigure Marstek Device",
+        "description": "Update the connection settings for the device at {host}.",
+        "data": {
+          "host": "IP address",
+          "port": "Port"
+        },
+        "data_description": {
+          "host": "Updated IP address of your Marstek device",
+          "port": "UDP port (default: 30000)"
+        }
       }
     }
   },
@@ -59,7 +72,9 @@
           "poll_interval_slow": "Slow polling interval (seconds)",
           "request_delay": "Delay between API requests (seconds)",
           "request_timeout": "Request timeout (seconds)",
-          "failure_threshold": "Failures before unavailable"
+          "failure_threshold": "Failures before unavailable",
+          "action_charge_power": "Default charge power (W)",
+          "action_discharge_power": "Default discharge power (W)"
         },
         "data_description": {
           "poll_interval_fast": "How often to poll battery/power data (ES.GetMode, ES.GetStatus, EM.GetStatus)",
@@ -67,7 +82,9 @@
           "poll_interval_slow": "How often to poll WiFi signal and battery temperature",
           "request_delay": "Delay between consecutive API requests (device stability)",
           "request_timeout": "How long to wait for a response from the device before timing out",
-          "failure_threshold": "Number of consecutive failures before entities become unavailable (1 = immediate, higher = more tolerant)"
+          "failure_threshold": "Number of consecutive failures before entities become unavailable (1 = immediate, higher = more tolerant)",
+          "action_charge_power": "Default power for charge actions (negative value)",
+          "action_discharge_power": "Default power for discharge actions (positive value)"
         }
       }
     }
@@ -327,6 +344,12 @@
     },
     "command_failed": {
       "message": "Failed to send command: {error}"
+    }
+  },
+  "issues": {
+    "cannot_connect": {
+      "title": "Marstek device not reachable",
+      "description": "Home Assistant cannot connect to the device at {host}. Error: {error}. Please verify the device is online and update the connection settings if its IP has changed."
     }
   }
 }

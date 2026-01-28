@@ -12,7 +12,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, device_registry as dr, issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DATA_UDP_CLIENT, DEFAULT_UDP_PORT, DOMAIN, PLATFORMS
@@ -34,6 +34,35 @@ class MarstekRuntimeData:
 
 
 type MarstekConfigEntry = ConfigEntry[MarstekRuntimeData]
+
+
+def _issue_id_for_entry(entry: ConfigEntry) -> str:
+    """Build issue id for a config entry."""
+    return f"cannot_connect_{entry.entry_id}"
+
+
+def _create_connection_issue(
+    hass: HomeAssistant, entry: ConfigEntry, host: str, error: str
+) -> None:
+    """Create a fixable connection issue for the entry."""
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        _issue_id_for_entry(entry),
+        is_fixable=True,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key="cannot_connect",
+        translation_placeholders={"host": host, "error": error},
+        data={"entry_id": entry.entry_id},
+    )
+
+
+def _clear_connection_issue(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clear a connection issue for the entry if present."""
+    issue_registry = ir.async_get(hass)
+    issue_id = _issue_id_for_entry(entry)
+    if issue_registry.async_get_issue(DOMAIN, issue_id):
+        issue_registry.async_delete_issue(DOMAIN, issue_id)
 
 
 def _get_shared_udp_client(hass: HomeAssistant) -> MarstekUDPClient | None:
@@ -122,6 +151,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
             error_type,
             str(ex),
         )
+        _create_connection_issue(hass, entry, stored_ip, str(ex))
         raise ConfigEntryNotReady(
             f"Unable to connect to device at {stored_ip} ({error_type}: {ex}). "
             "Scanner will detect IP changes and update configuration automatically. "
@@ -168,6 +198,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
             last_attempt.isoformat() if last_attempt else "unknown",
             err,
         )
+        _create_connection_issue(hass, entry, stored_ip, str(err))
         raise ConfigEntryNotReady(
             f"Initial data fetch failed for {stored_ip}: {err}. "
             "The device responded to connection check but failed to return status data. "
@@ -176,6 +207,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
     
     # Reset initial setup flag - subsequent polls use normal configured delays
     coordinator.finish_initial_setup()
+
+    # Clear any prior connection issue after successful setup
+    _clear_connection_issue(hass, entry)
 
     # Store coordinator and device_info in runtime_data
     # Note: UDP client is shared via hass.data[DOMAIN][DATA_UDP_CLIENT]
@@ -197,6 +231,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> 
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
+    # Clear any repair issues tied to this entry
+    _clear_connection_issue(hass, entry)
+
     # Check if this is the last LOADED config entry
     # (unloaded entries still exist in registry with NOT_LOADED state)
     remaining_entries = [
@@ -210,7 +247,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> 
         if udp_client:
             await udp_client.async_cleanup()
         
-        # Reset scanner singleton to ensure clean state on reload
+        # Stop scanner before resetting singleton to ensure clean state on reload
+        scanner = MarstekScanner.async_get(hass)
+        await scanner.async_unload()
         MarstekScanner.async_reset()
         
         # Remove domain data entirely when last entry is unloaded
@@ -219,6 +258,32 @@ async def async_unload_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> 
         await async_unload_services(hass)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> None:
+    """Remove a config entry and clean up stale devices."""
+    # Clear any remaining repair issues
+    _clear_connection_issue(hass, entry)
+
+    device_identifier = (
+        entry.data.get("ble_mac")
+        or entry.data.get("mac")
+        or entry.data.get("wifi_mac")
+    )
+    if not device_identifier:
+        return
+
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_device(
+        identifiers={(DOMAIN, device_identifier)}
+    )
+    if not device:
+        return
+
+    remaining_entries = set(device.config_entries) - {entry.entry_id}
+    if not remaining_entries:
+        _LOGGER.info("Removing stale device registry entry: %s", device.name)
+        device_registry.async_remove_device(device.id)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: MarstekConfigEntry) -> None:

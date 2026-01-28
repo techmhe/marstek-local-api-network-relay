@@ -13,7 +13,25 @@ from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.device_registry import format_mac
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.marstek.const import DOMAIN
+from custom_components.marstek.const import (
+    CONF_ACTION_CHARGE_POWER,
+    CONF_ACTION_DISCHARGE_POWER,
+    CONF_FAILURE_THRESHOLD,
+    CONF_POLL_INTERVAL_FAST,
+    CONF_POLL_INTERVAL_MEDIUM,
+    CONF_POLL_INTERVAL_SLOW,
+    CONF_REQUEST_DELAY,
+    CONF_REQUEST_TIMEOUT,
+    DEFAULT_ACTION_CHARGE_POWER,
+    DEFAULT_ACTION_DISCHARGE_POWER,
+    DEFAULT_FAILURE_THRESHOLD,
+    DEFAULT_POLL_INTERVAL_FAST,
+    DEFAULT_POLL_INTERVAL_MEDIUM,
+    DEFAULT_POLL_INTERVAL_SLOW,
+    DEFAULT_REQUEST_DELAY,
+    DEFAULT_REQUEST_TIMEOUT,
+    DOMAIN,
+)
 
 from tests.conftest import create_mock_client, patch_marstek_integration
 
@@ -260,7 +278,17 @@ async def test_options_flow_creates_entry(
     assert result["type"] == FlowResultType.FORM
 
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], user_input={}
+        result["flow_id"],
+        user_input={
+            CONF_POLL_INTERVAL_FAST: DEFAULT_POLL_INTERVAL_FAST,
+            CONF_POLL_INTERVAL_MEDIUM: DEFAULT_POLL_INTERVAL_MEDIUM,
+            CONF_POLL_INTERVAL_SLOW: DEFAULT_POLL_INTERVAL_SLOW,
+            CONF_REQUEST_DELAY: DEFAULT_REQUEST_DELAY,
+            CONF_REQUEST_TIMEOUT: DEFAULT_REQUEST_TIMEOUT,
+            CONF_FAILURE_THRESHOLD: DEFAULT_FAILURE_THRESHOLD,
+            CONF_ACTION_CHARGE_POWER: DEFAULT_ACTION_CHARGE_POWER,
+            CONF_ACTION_DISCHARGE_POWER: DEFAULT_ACTION_DISCHARGE_POWER,
+        },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
 
@@ -468,3 +496,42 @@ async def test_reauth_flow_device_returns_none(
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"]["base"] == "cannot_connect"
+
+
+async def test_reconfigure_flow_success(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test successful reconfigure flow."""
+    mock_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "reconfigure", "entry_id": mock_config_entry.entry_id},
+        data=None,
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure_confirm"
+
+    device_info = {
+        "ip": "192.168.1.201",
+        "ble_mac": "AA:BB:CC:DD:EE:FF",
+        "mac": "AA:BB:CC:DD:EE:FF",
+        "device_type": "Venus",
+        "version": "3.0",
+        "wifi_name": "marstek",
+        "wifi_mac": "11:22:33:44:55:66",
+        "model": "Venus",
+        "firmware": "3.0",
+    }
+
+    with _patch_manual_connection(device_info=device_info):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={"host": "192.168.1.201", "port": 30000},
+        )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    updated_entry = hass.config_entries.async_entries(DOMAIN)[0]
+    assert updated_entry.data["host"] == "192.168.1.201"
+    assert updated_entry.data["port"] == 30000

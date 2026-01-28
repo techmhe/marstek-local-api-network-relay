@@ -17,7 +17,15 @@ from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.typing import ConfigType, TemplateVarsType
 
-from .const import DATA_UDP_CLIENT, DEFAULT_UDP_PORT, DOMAIN
+from .const import (
+    CONF_ACTION_CHARGE_POWER,
+    CONF_ACTION_DISCHARGE_POWER,
+    DATA_UDP_CLIENT,
+    DEFAULT_ACTION_CHARGE_POWER,
+    DEFAULT_ACTION_DISCHARGE_POWER,
+    DEFAULT_UDP_PORT,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,9 +50,6 @@ VERIFICATION_TIMEOUT = 2.4
 VERIFICATION_DELAY = 0.5
 STOP_POWER_THRESHOLD = 50  # W
 
-# Action power settings
-CHARGE_POWER = -1300  # W (negative for charging)
-DISCHARGE_POWER = 800  # W (positive for discharging)
 STOP_POWER = 0  # W
 
 # Manual mode configuration
@@ -102,7 +107,24 @@ async def async_call_action_from_config(
 
     host, port = host_port
 
-    power, enable = _get_action_parameters(action_type)
+    entry = _get_entry_from_device_id(hass, device_id)
+    if not entry:
+        raise InvalidDeviceAutomationConfig(
+            translation_domain=DOMAIN,
+            translation_key="no_config_entry",
+            translation_placeholders={"device_id": device_id},
+        )
+
+    charge_power = entry.options.get(
+        CONF_ACTION_CHARGE_POWER, DEFAULT_ACTION_CHARGE_POWER
+    )
+    discharge_power = entry.options.get(
+        CONF_ACTION_DISCHARGE_POWER, DEFAULT_ACTION_DISCHARGE_POWER
+    )
+
+    power, enable = _get_action_parameters(
+        action_type, charge_power, discharge_power
+    )
     command = _build_set_mode_command(power, enable)
 
     # Get shared UDP client from hass.data
@@ -182,12 +204,16 @@ async def async_get_action_capabilities(
     return {"extra_fields": vol.Schema({})}
 
 
-def _get_action_parameters(action_type: str) -> tuple[int, int]:
+def _get_action_parameters(
+    action_type: str,
+    charge_power: int,
+    discharge_power: int,
+) -> tuple[int, int]:
     """Get power and enable parameters for an action type."""
     if action_type == ACTION_CHARGE:
-        return CHARGE_POWER, 1
+        return int(charge_power), 1
     if action_type == ACTION_DISCHARGE:
-        return DISCHARGE_POWER, 1
+        return int(discharge_power), 1
     if action_type == ACTION_STOP:
         return STOP_POWER, 0
     raise ValueError(f"Unknown action type: {action_type}")
@@ -304,8 +330,8 @@ async def _get_host_from_device(
     return None
 
 
-def _get_runtime_data_from_device_id(hass: HomeAssistant, device_id: str) -> Any | None:
-    """Get runtime data for a device ID."""
+def _get_entry_from_device_id(hass: HomeAssistant, device_id: str) -> Any | None:
+    """Get config entry for a device ID."""
     device_registry = dr.async_get(hass)
     device = device_registry.async_get(device_id)
     if not device:
@@ -313,12 +339,7 @@ def _get_runtime_data_from_device_id(hass: HomeAssistant, device_id: str) -> Any
 
     for config_entry_id in device.config_entries:
         entry = hass.config_entries.async_get_entry(config_entry_id)
-        if (
-            entry
-            and entry.domain == DOMAIN
-            and entry.state is ConfigEntryState.LOADED
-            and hasattr(entry, "runtime_data")
-        ):
-            return entry.runtime_data
+        if entry and entry.domain == DOMAIN and entry.state is ConfigEntryState.LOADED:
+            return entry
 
     return None

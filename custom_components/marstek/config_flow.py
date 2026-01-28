@@ -38,6 +38,8 @@ except ImportError:
             macaddress: str
 
 from .const import (
+    CONF_ACTION_CHARGE_POWER,
+    CONF_ACTION_DISCHARGE_POWER,
     CONF_FAILURE_THRESHOLD,
     CONF_POLL_INTERVAL_FAST,
     CONF_POLL_INTERVAL_MEDIUM,
@@ -45,6 +47,8 @@ from .const import (
     CONF_REQUEST_DELAY,
     CONF_REQUEST_TIMEOUT,
     DEFAULT_FAILURE_THRESHOLD,
+    DEFAULT_ACTION_CHARGE_POWER,
+    DEFAULT_ACTION_DISCHARGE_POWER,
     DEFAULT_POLL_INTERVAL_FAST,
     DEFAULT_POLL_INTERVAL_MEDIUM,
     DEFAULT_POLL_INTERVAL_SLOW,
@@ -385,6 +389,12 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle reauth when device becomes unreachable."""
         return await self.async_step_reauth_confirm()
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Handle reconfiguration of an existing entry."""
+        return await self.async_step_reconfigure_confirm(user_input)
+
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
@@ -428,6 +438,58 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
             errors=errors,
             description_placeholders={"host": reauth_entry.data.get(CONF_HOST, "")},
+        )
+
+    async def async_step_reconfigure_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Confirm reconfiguration dialog."""
+        errors: dict[str, str] = {}
+        reconfigure_entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            host = user_input.get(CONF_HOST)
+            port = user_input.get(CONF_PORT, DEFAULT_UDP_PORT)
+
+            try:
+                device_info = await get_device_info(host=host, port=port)
+                if device_info:
+                    unique_id_mac = (
+                        device_info.get("ble_mac")
+                        or device_info.get("mac")
+                        or device_info.get("wifi_mac")
+                    )
+                    if not unique_id_mac:
+                        errors["base"] = "invalid_discovery_info"
+                    else:
+                        await self.async_set_unique_id(format_mac(unique_id_mac))
+                        self._abort_if_unique_id_mismatch()
+                        return self.async_update_reload_and_abort(
+                            reconfigure_entry,
+                            data_updates={CONF_HOST: host, CONF_PORT: port},
+                            reason="reconfigure_successful",
+                        )
+                errors["base"] = "cannot_connect"
+            except (OSError, TimeoutError, ValueError):
+                errors["base"] = "cannot_connect"
+
+        return self.async_show_form(
+            step_id="reconfigure_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_HOST, default=reconfigure_entry.data.get(CONF_HOST, "")
+                    ): cv.string,
+                    vol.Required(
+                        CONF_PORT,
+                        default=reconfigure_entry.data.get(CONF_PORT, DEFAULT_UDP_PORT),
+                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "host": reconfigure_entry.data.get(CONF_HOST, "")
+            },
         )
 
     async def _async_handle_discovery_with_unique_id(
@@ -497,6 +559,12 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
         )
         current_failure_threshold = self.config_entry.options.get(
             CONF_FAILURE_THRESHOLD, DEFAULT_FAILURE_THRESHOLD
+        )
+        current_charge_power = self.config_entry.options.get(
+            CONF_ACTION_CHARGE_POWER, DEFAULT_ACTION_CHARGE_POWER
+        )
+        current_discharge_power = self.config_entry.options.get(
+            CONF_ACTION_DISCHARGE_POWER, DEFAULT_ACTION_DISCHARGE_POWER
         )
 
         return self.async_show_form(
@@ -571,6 +639,30 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
                             min=1,
                             max=10,
                             step=1,
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_ACTION_CHARGE_POWER,
+                        default=current_charge_power,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=-5000,
+                            max=0,
+                            step=50,
+                            unit_of_measurement="W",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_ACTION_DISCHARGE_POWER,
+                        default=current_discharge_power,
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=0,
+                            max=5000,
+                            step=50,
+                            unit_of_measurement="W",
                             mode=NumberSelectorMode.BOX,
                         )
                     ),

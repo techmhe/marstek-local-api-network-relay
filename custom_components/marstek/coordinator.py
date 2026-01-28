@@ -13,6 +13,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -301,6 +302,9 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.last_update_success_time = dt_util.now()
             self.consecutive_failures = 0
 
+            # Clear any existing connection issue on successful update
+            self._clear_connection_issue()
+
             return device_status  # noqa: TRY300
         except (TimeoutError, OSError, ValueError) as err:
             # Connection failed - Scanner will detect IP changes and update config entry
@@ -317,6 +321,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     failure_threshold,
                     err,
                 )
+                self._create_connection_issue(str(err))
                 # Mark update as failed so entities become unavailable
                 raise UpdateFailed(
                     f"Polling failed for {current_ip} (attempt #{self.consecutive_failures}): {err}"
@@ -333,6 +338,29 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             # Return cached data - entities stay available
             return self.data or {}
+
+    def _issue_id(self) -> str:
+        return f"cannot_connect_{self.config_entry.entry_id}"
+
+    def _create_connection_issue(self, error: str) -> None:
+        """Create a fixable connection issue for this entry."""
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            self._issue_id(),
+            is_fixable=True,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key="cannot_connect",
+            translation_placeholders={"host": self.device_ip, "error": error},
+            data={"entry_id": self.config_entry.entry_id},
+        )
+
+    def _clear_connection_issue(self) -> None:
+        """Clear the connection issue if it exists."""
+        issue_registry = ir.async_get(self.hass)
+        issue_id = self._issue_id()
+        if issue_registry.async_get_issue(DOMAIN, issue_id):
+            issue_registry.async_delete_issue(DOMAIN, issue_id)
 
     async def _async_config_entry_updated(
         self, hass: HomeAssistant, entry: ConfigEntry

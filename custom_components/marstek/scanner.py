@@ -53,6 +53,9 @@ class MarstekScanner:
 
     async def async_setup(self) -> None:
         """Initialize scanner and start periodic scanning."""
+        if self._track_interval is not None:
+            _LOGGER.debug("Marstek scanner already initialized")
+            return
         _LOGGER.info("Initializing Marstek scanner")
         # No need to create persistent UDP client - create new instance for each scan
         # This avoids state issues and conflicts with concurrent requests
@@ -67,6 +70,13 @@ class MarstekScanner:
 
         # Execute initial scan immediately
         self.async_scan()
+
+    async def async_unload(self) -> None:
+        """Stop periodic scanning and cleanup resources."""
+        if self._track_interval is not None:
+            self._track_interval()
+            self._track_interval = None
+            _LOGGER.debug("Marstek scanner stopped")
 
     @callback
     def async_scan(self, now=None) -> None:
