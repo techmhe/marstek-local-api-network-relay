@@ -65,9 +65,9 @@ rules:
   icon-translations:
     status: done
     comment: Created icons.json with icons for all sensor and select entities
-  reconfiguration-flow: todo
-  repair-issues: todo
-  stale-devices: todo
+  reconfiguration-flow: done
+  repair-issues: done
+  stale-devices: done
 
   # Platinum
   async-dependency: done

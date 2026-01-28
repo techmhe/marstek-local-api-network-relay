@@ -109,6 +109,7 @@ def create_mock_scanner() -> MagicMock:
     """Create a mock MarstekScanner."""
     scanner = MagicMock()
     scanner.async_setup = AsyncMock(return_value=None)
+    scanner.async_unload = AsyncMock(return_value=None)
     return scanner
 
 
