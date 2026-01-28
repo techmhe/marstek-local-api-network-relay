@@ -68,38 +68,46 @@
         "sections": {
           "polling_settings": {
             "name": "Polling Intervals",
-            "description": "How often to poll the device for different types of data"
+            "description": "How often to poll the device for different types of data",
+            "data": {
+              "poll_interval_fast": "Fast polling interval",
+              "poll_interval_medium": "Medium polling interval",
+              "poll_interval_slow": "Slow polling interval"
+            },
+            "data_description": {
+              "poll_interval_fast": "Battery & power data (ES.GetMode, ES.GetStatus, EM.GetStatus)",
+              "poll_interval_medium": "Solar/PV data",
+              "poll_interval_slow": "WiFi signal and battery temperature"
+            }
           },
           "network_settings": {
             "name": "Network Settings",
-            "description": "Request timing and error handling"
+            "description": "Request timing and error handling",
+            "data": {
+              "request_delay": "Delay between requests",
+              "request_timeout": "Request timeout",
+              "failure_threshold": "Failures before unavailable"
+            },
+            "data_description": {
+              "request_delay": "Delay between consecutive API requests for device stability",
+              "request_timeout": "How long to wait for a response before timing out",
+              "failure_threshold": "Number of consecutive failures before entities become unavailable"
+            }
           },
           "power_settings": {
             "name": "Power Settings",
-            "description": "Default power values for device actions"
+            "description": "Default power values for device actions",
+            "data": {
+              "action_charge_power": "Default charge power",
+              "action_discharge_power": "Default discharge power",
+              "socket_limit": "Enforce 800 W socket limit"
+            },
+            "data_description": {
+              "action_charge_power": "Default power for charge actions (negative value)",
+              "action_discharge_power": "Default power for discharge actions (positive value)",
+              "socket_limit": "Limit charge/discharge to 800 W for plug socket safety"
+            }
           }
-        },
-        "data": {
-          "poll_interval_fast": "Fast polling interval",
-          "poll_interval_medium": "Medium polling interval",
-          "poll_interval_slow": "Slow polling interval",
-          "request_delay": "Delay between requests",
-          "request_timeout": "Request timeout",
-          "failure_threshold": "Failures before unavailable",
-          "action_charge_power": "Default charge power",
-          "action_discharge_power": "Default discharge power",
-          "socket_limit": "Use 800 W socket limit"
-        },
-        "data_description": {
-          "poll_interval_fast": "Battery & power data (ES.GetMode, ES.GetStatus, EM.GetStatus)",
-          "poll_interval_medium": "Solar/PV data",
-          "poll_interval_slow": "WiFi signal and battery temperature",
-          "request_delay": "Delay between consecutive API requests for device stability",
-          "request_timeout": "How long to wait for a response before timing out",
-          "failure_threshold": "Number of consecutive failures before entities become unavailable",
-          "action_charge_power": "Default power for charge actions (negative value)",
-          "action_discharge_power": "Default power for discharge actions (positive value)",
-          "socket_limit": "Enforce the 800 W plug socket limit for charge and discharge actions"
         }
       }
     }
