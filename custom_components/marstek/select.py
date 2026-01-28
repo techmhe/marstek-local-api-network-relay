@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass
 import logging
 from typing import Any
 
 from .pymarstek import MarstekUDPClient, build_command
 
-from homeassistant.components.select import SelectEntity
+from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
@@ -51,6 +53,24 @@ RETRY_TIMEOUT = 5.0
 RETRY_DELAY = 1.0
 
 
+@dataclass(kw_only=True)
+class MarstekSelectEntityDescription(SelectEntityDescription):
+    """Marstek select entity description."""
+
+    options_fn: Callable[[], list[str]]
+    value_fn: Callable[[dict[str, Any]], str | None]
+
+
+SELECT_ENTITIES: tuple[MarstekSelectEntityDescription, ...] = (
+    MarstekSelectEntityDescription(
+        key="operating_mode",
+        translation_key="operating_mode",
+        options_fn=lambda: OPERATING_MODES,
+        value_fn=lambda data: data.get("device_mode"),
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: MarstekConfigEntry,
@@ -65,16 +85,16 @@ async def async_setup_entry(
         _LOGGER.error("Shared UDP client not found for select entity setup")
         return
 
-    entities: list[SelectEntity] = [
+    async_add_entities(
         MarstekOperatingModeSelect(
             coordinator=coordinator,
             device_info=device_info,
+            description=description,
             udp_client=udp_client,
             config_entry=config_entry,
-        ),
-    ]
-
-    async_add_entities(entities)
+        )
+        for description in SELECT_ENTITIES
+    )
 
 
 class MarstekOperatingModeSelect(
@@ -83,36 +103,38 @@ class MarstekOperatingModeSelect(
     """Select entity for Marstek operating mode."""
 
     _attr_has_entity_name = True
-    _attr_translation_key = "operating_mode"
+    entity_description: MarstekSelectEntityDescription
 
     def __init__(
         self,
         coordinator: MarstekDataUpdateCoordinator,
         device_info: dict[str, Any],
+        description: MarstekSelectEntityDescription,
         udp_client: MarstekUDPClient,
         config_entry: ConfigEntry,
     ) -> None:
         """Initialize the select entity."""
         super().__init__(coordinator)
+        self.entity_description = description
         self._device_info_dict = device_info
         self._udp_client = udp_client
         self._config_entry = config_entry
 
         self._device_identifier = get_device_identifier(device_info)
-        self._attr_unique_id = f"{self._device_identifier}_operating_mode"
+        self._attr_unique_id = f"{self._device_identifier}_{description.key}"
         self._attr_device_info = build_device_info(device_info)
 
     @property
     def options(self) -> list[str]:
         """Return the list of available options."""
-        return OPERATING_MODES
+        return self.entity_description.options_fn()
 
     @property
     def current_option(self) -> str | None:
         """Return the current operating mode."""
         if not self.coordinator.data:
             return None
-        return self.coordinator.data.get("device_mode")
+        return self.entity_description.value_fn(self.coordinator.data)
 
     async def async_select_option(self, option: str) -> None:
         """Change the operating mode."""

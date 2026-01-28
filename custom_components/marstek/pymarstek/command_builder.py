@@ -1,8 +1,13 @@
-"""Command builder utilities for pymarstek."""
+"""Command builder utilities for pymarstek.
+
+All commands are validated before being built to protect devices from
+malformed requests. See validators.py for validation rules.
+"""
 
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from .const import (
@@ -15,6 +20,9 @@ from .const import (
     CMD_PV_GET_STATUS,
     CMD_WIFI_STATUS,
 )
+from .validators import ValidationError, validate_command, validate_device_id
+
+_LOGGER = logging.getLogger(__name__)
 
 _request_id = 0
 
@@ -32,13 +40,36 @@ def reset_request_id() -> None:
     _request_id = 0
 
 
-def build_command(method: str, params: dict[str, Any] | None = None) -> str:
-    """Construct a JSON command payload."""
+def build_command(
+    method: str, params: dict[str, Any] | None = None, *, validate: bool = True
+) -> str:
+    """Construct a JSON command payload.
+    
+    Args:
+        method: API method name (e.g., "ES.GetStatus")
+        params: Optional parameters dictionary
+        validate: Whether to validate the command (default True). Only set to
+            False if validation was already performed upstream.
+    
+    Returns:
+        JSON string of the command
+        
+    Raises:
+        ValidationError: If command validation fails and validate=True
+    """
     command = {
         "id": get_next_request_id(),
         "method": method,
         "params": params or {},
     }
+    
+    if validate:
+        try:
+            validate_command(command)
+        except ValidationError as err:
+            _LOGGER.error("Command validation failed: %s", err.message)
+            raise
+    
     return json.dumps(command)
 
 
@@ -48,22 +79,66 @@ def discover() -> str:
 
 
 def get_battery_status(device_id: int = 0) -> str:
-    """Create a battery status command."""
+    """Create a battery status command.
+    
+    Args:
+        device_id: Device identifier (0-255)
+        
+    Returns:
+        JSON command string
+        
+    Raises:
+        ValidationError: If device_id is invalid
+    """
+    validate_device_id(device_id)
     return build_command(CMD_BATTERY_STATUS, {"id": device_id})
 
 
 def get_es_status(device_id: int = 0) -> str:
-    """Create an ES status command."""
+    """Create an ES status command.
+    
+    Args:
+        device_id: Device identifier (0-255)
+        
+    Returns:
+        JSON command string
+        
+    Raises:
+        ValidationError: If device_id is invalid
+    """
+    validate_device_id(device_id)
     return build_command(CMD_ES_STATUS, {"id": device_id})
 
 
 def get_es_mode(device_id: int = 0) -> str:
-    """Create an ES mode command."""
+    """Create an ES mode command.
+    
+    Args:
+        device_id: Device identifier (0-255)
+        
+    Returns:
+        JSON command string
+        
+    Raises:
+        ValidationError: If device_id is invalid
+    """
+    validate_device_id(device_id)
     return build_command(CMD_ES_MODE, {"id": device_id})
 
 
 def get_pv_status(device_id: int = 0) -> str:
-    """Create a PV status command."""
+    """Create a PV status command.
+    
+    Args:
+        device_id: Device identifier (0-255)
+        
+    Returns:
+        JSON command string
+        
+    Raises:
+        ValidationError: If device_id is invalid
+    """
+    validate_device_id(device_id)
     return build_command(CMD_PV_GET_STATUS, {"id": device_id})
 
 
@@ -100,10 +175,32 @@ def set_es_mode_manual_discharge(device_id: int = 0, power: int = 1300) -> str:
 
 
 def get_wifi_status(device_id: int = 0) -> str:
-    """Create a WiFi status command."""
+    """Create a WiFi status command.
+    
+    Args:
+        device_id: Device identifier (0-255)
+        
+    Returns:
+        JSON command string
+        
+    Raises:
+        ValidationError: If device_id is invalid
+    """
+    validate_device_id(device_id)
     return build_command(CMD_WIFI_STATUS, {"id": device_id})
 
 
 def get_em_status(device_id: int = 0) -> str:
-    """Create an Energy Meter (CT) status command."""
+    """Create an Energy Meter (CT) status command.
+    
+    Args:
+        device_id: Device identifier (0-255)
+        
+    Returns:
+        JSON command string
+        
+    Raises:
+        ValidationError: If device_id is invalid
+    """
+    validate_device_id(device_id)
     return build_command(CMD_EM_STATUS, {"id": device_id})

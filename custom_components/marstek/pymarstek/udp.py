@@ -1,4 +1,8 @@
-"""Low level UDP client implementation for pymarstek."""
+"""Low level UDP client implementation for pymarstek.
+
+All outbound messages are validated before transmission to protect devices
+from malformed requests. See validators.py for validation rules.
+"""
 
 from __future__ import annotations
 
@@ -34,6 +38,7 @@ from .data_parser import (
     parse_pv_status_response,
     parse_wifi_status_response,
 )
+from .validators import ValidationError, validate_json_message
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -139,10 +144,43 @@ class MarstekUDPClient:
         timeout: float = 5.0,
         *,
         quiet_on_timeout: bool = False,
+        validate: bool = True,
     ) -> dict[str, Any]:
+        """Send a request message and wait for response.
+        
+        Args:
+            message: JSON command string to send
+            target_ip: Target device IP address
+            target_port: Target device port
+            timeout: Response timeout in seconds
+            quiet_on_timeout: If True, don't log warnings on timeout
+            validate: If True, validate message before sending (default True).
+                Set to False only if message was already validated.
+        
+        Returns:
+            Response dictionary from device
+            
+        Raises:
+            ValidationError: If message validation fails and validate=True
+            TimeoutError: If no response received within timeout
+            ValueError: If message has no id field
+        """
         if not self._socket:
             await self.async_setup()
         assert self._socket is not None
+
+        # Validate message before sending to protect device
+        if validate:
+            try:
+                validate_json_message(message)
+            except ValidationError as err:
+                _LOGGER.error(
+                    "Request validation failed for %s:%d - %s",
+                    target_ip,
+                    target_port,
+                    err.message,
+                )
+                raise
 
         try:
             message_obj = json.loads(message)
@@ -196,12 +234,32 @@ class MarstekUDPClient:
                 _LOGGER.error("Error receiving UDP response: %s", err)
                 await asyncio.sleep(1)
 
-    async def send_broadcast_request(self, message: str, timeout: float = DISCOVERY_TIMEOUT) -> list[dict[str, Any]]:
-        """Send a broadcast message and collect all responses within timeout."""
+    async def send_broadcast_request(self, message: str, timeout: float = DISCOVERY_TIMEOUT, *, validate: bool = True) -> list[dict[str, Any]]:
+        """Send a broadcast message and collect all responses within timeout.
+        
+        Args:
+            message: JSON command string to broadcast
+            timeout: Time to wait for responses in seconds
+            validate: If True, validate message before sending (default True)
+            
+        Returns:
+            List of response dictionaries from devices
+            
+        Raises:
+            ValidationError: If message validation fails and validate=True
+        """
         _LOGGER.debug("Starting broadcast discovery with timeout %ss", timeout)
         if not self._socket:
             await self.async_setup()
         assert self._socket is not None
+
+        # Validate message before broadcasting to protect devices
+        if validate:
+            try:
+                validate_json_message(message)
+            except ValidationError as err:
+                _LOGGER.error("Broadcast validation failed: %s", err.message)
+                return []
 
         try:
             message_obj = json.loads(message)
@@ -310,11 +368,28 @@ class MarstekUDPClient:
         target_ip: str,
         target_port: int,
         timeout: float = 5.0,
+        *,
+        validate: bool = True,
     ) -> dict[str, Any]:
+        """Send request while pausing polling to avoid concurrent traffic.
+        
+        Args:
+            message: JSON command string to send
+            target_ip: Target device IP address
+            target_port: Target device port
+            timeout: Response timeout in seconds
+            validate: If True, validate message before sending (default True)
+            
+        Returns:
+            Response dictionary from device
+            
+        Raises:
+            ValidationError: If message validation fails and validate=True
+        """
         await self.pause_polling(target_ip)
         try:
             return await self.send_request(
-                message, target_ip, target_port, timeout, quiet_on_timeout=True
+                message, target_ip, target_port, timeout, quiet_on_timeout=True, validate=validate
             )
         finally:
             await self.resume_polling(target_ip)

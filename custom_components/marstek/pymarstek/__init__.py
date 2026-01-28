@@ -18,9 +18,11 @@ from .data_parser import (
     parse_pv_status_response,
 )
 from .udp import MarstekUDPClient
+from .validators import ValidationError, validate_json_message
 
 __all__ = [
     "MarstekUDPClient",
+    "ValidationError",
     "build_command",
     "discover",
     "get_battery_status",
@@ -34,4 +36,5 @@ __all__ = [
     "parse_es_status_response",
     "parse_pv_status_response",
     "merge_device_status",
+    "validate_json_message",
 ]
