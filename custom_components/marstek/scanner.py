@@ -21,8 +21,9 @@ from .discovery import discover_devices
 
 _LOGGER = logging.getLogger(__name__)
 
-# Scanner runs discovery every 60 seconds to detect IP changes
-SCAN_INTERVAL = timedelta(seconds=60)
+# Scanner runs discovery every 10 minutes to detect IP changes
+# (conservative interval to reduce network traffic to devices)
+SCAN_INTERVAL = timedelta(minutes=10)
 
 
 class MarstekScanner:
