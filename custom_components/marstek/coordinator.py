@@ -360,7 +360,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         issue_registry = ir.async_get(self.hass)
         issue_id = self._issue_id()
         if issue_registry.async_get_issue(DOMAIN, issue_id):
-            issue_registry.async_delete_issue(DOMAIN, issue_id)
+            issue_registry.async_delete(DOMAIN, issue_id)
 
     async def _async_config_entry_updated(
         self, hass: HomeAssistant, entry: ConfigEntry

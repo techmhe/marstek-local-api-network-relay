@@ -535,3 +535,28 @@ async def test_reconfigure_flow_success(
     updated_entry = hass.config_entries.async_entries(DOMAIN)[0]
     assert updated_entry.data["host"] == "192.168.1.201"
     assert updated_entry.data["port"] == 30000
+
+
+async def test_reconfigure_flow_cannot_connect(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test reconfigure flow with connection failure."""
+    mock_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "reconfigure", "entry_id": mock_config_entry.entry_id},
+        data=None,
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure_confirm"
+
+    with _patch_manual_connection(error=TimeoutError("Connection timeout")):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={"host": "192.168.1.201", "port": 30000},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure_confirm"
+    assert result["errors"]["base"] == "cannot_connect"

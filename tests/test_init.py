@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr, issue_registry as ir
+from homeassistant.helpers.device_registry import format_mac
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.marstek.const import DATA_UDP_CLIENT, DOMAIN
@@ -268,3 +270,79 @@ async def test_last_entry_unload_cleans_up_shared_client(
             assert DATA_UDP_CLIENT not in marstek_data
         # Services should be unregistered
         assert not hass.services.has_service(DOMAIN, "set_passive_mode")
+
+
+async def test_repair_issue_created_on_failure(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test connection repair issue is created on setup failure."""
+    mock_config_entry.add_to_hass(hass)
+
+    failing_client = create_mock_client(send_request_error=TimeoutError("timeout"))
+    with patch_marstek_integration(client=failing_client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    issue_registry = ir.async_get(hass)
+    issue_id = f"cannot_connect_{mock_config_entry.entry_id}"
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is not None
+
+
+async def test_repair_issue_cleared_on_success(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test connection repair issue is cleared on successful setup."""
+    mock_config_entry.add_to_hass(hass)
+
+    issue_registry = ir.async_get(hass)
+    issue_id = f"cannot_connect_{mock_config_entry.entry_id}"
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=True,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key="cannot_connect",
+        translation_placeholders={"host": "1.2.3.4", "error": "timeout"},
+        data={"entry_id": mock_config_entry.entry_id},
+    )
+
+    working_client = create_mock_client(
+        status={"device_mode": "auto", "battery_soc": 50, "battery_power": 100}
+    )
+    with patch_marstek_integration(client=working_client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_remove_entry_cleans_stale_device(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test removing the last entry deletes the device registry entry."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client(
+        status={"device_mode": "auto", "battery_soc": 50, "battery_power": 100}
+    )
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    device_registry = dr.async_get(hass)
+    formatted_mac = format_mac(mock_config_entry.data["ble_mac"])
+    device = device_registry.async_get_device(
+        identifiers={(DOMAIN, formatted_mac)}
+    )
+    assert device is not None
+
+    await hass.config_entries.async_remove(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert (
+        device_registry.async_get_device(
+            identifiers={(DOMAIN, formatted_mac)}
+        )
+        is None
+    )

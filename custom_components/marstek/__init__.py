@@ -62,7 +62,7 @@ def _clear_connection_issue(hass: HomeAssistant, entry: ConfigEntry) -> None:
     issue_registry = ir.async_get(hass)
     issue_id = _issue_id_for_entry(entry)
     if issue_registry.async_get_issue(DOMAIN, issue_id):
-        issue_registry.async_delete_issue(DOMAIN, issue_id)
+        issue_registry.async_delete(DOMAIN, issue_id)
 
 
 def _get_shared_udp_client(hass: HomeAssistant) -> MarstekUDPClient | None:
