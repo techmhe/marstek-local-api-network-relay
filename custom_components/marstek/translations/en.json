@@ -417,7 +417,6 @@
   "issues": {
     "cannot_connect": {
       "title": "Marstek device not reachable",
-      "description": "Home Assistant cannot connect to the device at {host}. Error: {error}. Please verify the device is online and update the connection settings if its IP has changed.",
       "fix_flow": {
         "step": {
           "init": {
