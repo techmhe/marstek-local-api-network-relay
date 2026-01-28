@@ -237,3 +237,55 @@ class TestStaticMode:
         get_mode_response = device._build_response(2, "ES.GetMode", {})
 
         assert get_mode_response["result"]["mode"] == "AI"
+
+
+class TestAIMode:
+    """Tests for AI mode functionality."""
+
+    def test_ai_mode_set_and_read(self) -> None:
+        """Test AI mode can be set and read back correctly."""
+        device = MockMarstekDevice(port=30012, simulate=True)
+
+        set_mode_params = {
+            "id": 0,
+            "config": {
+                "mode": "AI",
+                "ai_cfg": {"enable": 1},
+            },
+        }
+
+        set_mode_response = device._build_response(1, "ES.SetMode", set_mode_params)
+        assert set_mode_response["result"]["set_result"] is True
+
+        get_mode_response = device._build_response(2, "ES.GetMode", {})
+        assert get_mode_response["result"]["mode"] == "AI"
+
+    def test_ai_mode_with_simulation(self) -> None:
+        """Test AI mode behavior with simulation running."""
+        device = MockMarstekDevice(port=30013, simulate=True)
+        device.simulator.start()
+
+        try:
+            set_mode_params = {
+                "id": 0,
+                "config": {
+                    "mode": "AI",
+                    "ai_cfg": {"enable": 1},
+                },
+            }
+            device._build_response(1, "ES.SetMode", set_mode_params)
+
+            # Let simulation run briefly
+            time.sleep(0.3)
+
+            get_mode_response = device._build_response(2, "ES.GetMode", {})
+            get_status_response = device._build_response(3, "ES.GetStatus", {})
+
+            # Mode should be AI
+            assert get_mode_response["result"]["mode"] == "AI"
+
+            # Battery should be responding (SOC and power should be reasonable)
+            result = get_status_response["result"]
+            assert 0 <= result["bat_soc"] <= 100
+        finally:
+            device.simulator.stop()

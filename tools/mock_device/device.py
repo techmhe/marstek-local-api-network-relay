@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Any
 
-from .const import DEFAULT_CONFIG, DEFAULT_UDP_PORT, MODE_AUTO, MODE_MANUAL, MODE_PASSIVE
+from .const import DEFAULT_CONFIG, DEFAULT_UDP_PORT, MODE_AI, MODE_AUTO, MODE_MANUAL, MODE_PASSIVE
 from .handlers import (
     get_static_state,
     handle_bat_get_status,
@@ -92,6 +92,7 @@ class MockMarstekDevice:
         print("=" * 60)
         print("Mode behaviors:")
         print("  Auto: Discharges to offset household consumption (P1 meter = 0)")
+        print("  AI: Time-based strategy (charges at night, conservative during day)")
         print("  Manual: Follows scheduled charge/discharge times")
         print("  Passive: Fixed power for set duration")
         print("=" * 60)
@@ -238,6 +239,8 @@ class MockMarstekDevice:
                     self.simulator.set_mode(mode, config.get("passive_cfg", {}))
                 elif mode == MODE_MANUAL:
                     self.simulator.set_mode(mode, config.get("manual_cfg", {}))
+                elif mode == MODE_AI:
+                    self.simulator.set_mode(mode, config.get("ai_cfg", {}))
                 else:
                     self.simulator.set_mode(mode)
             else:
