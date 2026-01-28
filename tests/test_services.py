@@ -116,6 +116,167 @@ async def test_set_passive_mode_service(
 
 
 @pytest.mark.asyncio
+async def test_set_passive_mode_power_out_of_range_socket_limit_default(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test passive mode rejects power above socket limit by default for Venus E."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Venus E",
+        },
+    )
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, DEVICE_IDENTIFIER)}
+        )
+        assert device is not None
+
+        with pytest.raises(HomeAssistantError, match="Requested power"):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_SET_PASSIVE_MODE,
+                {
+                    ATTR_DEVICE_ID: device.id,
+                    ATTR_POWER: 1200,
+                    ATTR_DURATION: 3600,
+                },
+                blocking=True,
+            )
+
+
+@pytest.mark.asyncio
+async def test_set_passive_mode_power_allowed_when_socket_limit_disabled(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test passive mode allows model max when socket limit is disabled."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Venus E",
+        },
+        options={
+            "socket_limit": False,
+        },
+    )
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, DEVICE_IDENTIFIER)}
+        )
+        assert device is not None
+
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_PASSIVE_MODE,
+            {
+                ATTR_DEVICE_ID: device.id,
+                ATTR_POWER: 2500,
+                ATTR_DURATION: 3600,
+            },
+            blocking=True,
+        )
+
+        assert client.send_request.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_set_passive_mode_charge_ignores_socket_limit_default(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test passive mode allows charge above 800 W when socket limit is on by default."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Venus E",
+        },
+    )
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, DEVICE_IDENTIFIER)}
+        )
+        assert device is not None
+
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_PASSIVE_MODE,
+            {
+                ATTR_DEVICE_ID: device.id,
+                ATTR_POWER: -2000,
+                ATTR_DURATION: 3600,
+            },
+            blocking=True,
+        )
+
+        assert client.send_request.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_set_passive_mode_charge_ignores_socket_limit_explicit_true(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test passive mode allows charge above 800 W when socket limit is explicitly enabled."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Venus E",
+        },
+        options={
+            "socket_limit": True,
+        },
+    )
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, DEVICE_IDENTIFIER)}
+        )
+        assert device is not None
+
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_PASSIVE_MODE,
+            {
+                ATTR_DEVICE_ID: device.id,
+                ATTR_POWER: -2000,
+                ATTR_DURATION: 3600,
+            },
+            blocking=True,
+        )
+
+        assert client.send_request.call_count >= 1
+
+
+@pytest.mark.asyncio
 async def test_set_manual_schedule_service(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
@@ -351,6 +512,147 @@ async def test_set_manual_schedules_service(
 
         # Verify commands were sent (1 for setup + 2 for schedules)
         assert client.send_request.call_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_set_manual_schedules_power_out_of_range(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test manual schedules reject power above socket limit by default for Venus D."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Venus D",
+        },
+    )
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, DEVICE_IDENTIFIER)}
+        )
+        assert device is not None
+
+        with pytest.raises(HomeAssistantError, match="Requested power"):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_SET_MANUAL_SCHEDULES,
+                {
+                    ATTR_DEVICE_ID: device.id,
+                    ATTR_SCHEDULES: [
+                        {
+                            ATTR_SCHEDULE_SLOT: 0,
+                            ATTR_START_TIME: "08:00",
+                            ATTR_END_TIME: "16:00",
+                            ATTR_POWER: 1000,
+                            ATTR_DAYS: ["mon", "tue"],
+                            ATTR_ENABLE: True,
+                        },
+                    ],
+                },
+                blocking=True,
+            )
+
+
+@pytest.mark.asyncio
+async def test_set_manual_schedules_mixed_invalid_entry(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test batch schedules fail when any entry is out of range."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Venus D",
+        },
+    )
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, DEVICE_IDENTIFIER)}
+        )
+        assert device is not None
+
+        with pytest.raises(HomeAssistantError, match="Requested power"):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_SET_MANUAL_SCHEDULES,
+                {
+                    ATTR_DEVICE_ID: device.id,
+                    ATTR_SCHEDULES: [
+                        {
+                            ATTR_SCHEDULE_SLOT: 0,
+                            ATTR_START_TIME: "08:00",
+                            ATTR_END_TIME: "16:00",
+                            ATTR_POWER: 600,
+                            ATTR_DAYS: ["mon", "tue"],
+                            ATTR_ENABLE: True,
+                        },
+                        {
+                            ATTR_SCHEDULE_SLOT: 1,
+                            ATTR_START_TIME: "18:00",
+                            ATTR_END_TIME: "22:00",
+                            ATTR_POWER: 1200,
+                            ATTR_DAYS: ["wed"],
+                            ATTR_ENABLE: True,
+                        },
+                    ],
+                },
+                blocking=True,
+            )
+
+
+@pytest.mark.asyncio
+async def test_set_passive_mode_unknown_device_type_out_of_range(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test unknown device type falls back to socket limit when enabled."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Unknown Model",
+        },
+        options={
+            "socket_limit": True,
+        },
+    )
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, DEVICE_IDENTIFIER)}
+        )
+        assert device is not None
+
+        with pytest.raises(HomeAssistantError, match="Requested power"):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_SET_PASSIVE_MODE,
+                {
+                    ATTR_DEVICE_ID: device.id,
+                    ATTR_POWER: 1200,
+                    ATTR_DURATION: 3600,
+                },
+                blocking=True,
+            )
 
 
 @pytest.mark.asyncio

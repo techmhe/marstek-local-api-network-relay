@@ -31,6 +31,7 @@ from custom_components.marstek.const import (
     DEFAULT_REQUEST_DELAY,
     DEFAULT_REQUEST_TIMEOUT,
     DOMAIN,
+    CONF_SOCKET_LIMIT,
 )
 
 from tests.conftest import create_mock_client, patch_marstek_integration
@@ -277,20 +278,65 @@ async def test_options_flow_creates_entry(
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
     assert result["type"] == FlowResultType.FORM
 
+    # Options flow uses sections - provide nested structure
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         user_input={
-            CONF_POLL_INTERVAL_FAST: DEFAULT_POLL_INTERVAL_FAST,
-            CONF_POLL_INTERVAL_MEDIUM: DEFAULT_POLL_INTERVAL_MEDIUM,
-            CONF_POLL_INTERVAL_SLOW: DEFAULT_POLL_INTERVAL_SLOW,
-            CONF_REQUEST_DELAY: DEFAULT_REQUEST_DELAY,
-            CONF_REQUEST_TIMEOUT: DEFAULT_REQUEST_TIMEOUT,
-            CONF_FAILURE_THRESHOLD: DEFAULT_FAILURE_THRESHOLD,
-            CONF_ACTION_CHARGE_POWER: DEFAULT_ACTION_CHARGE_POWER,
-            CONF_ACTION_DISCHARGE_POWER: DEFAULT_ACTION_DISCHARGE_POWER,
+            "polling_settings": {
+                CONF_POLL_INTERVAL_FAST: DEFAULT_POLL_INTERVAL_FAST,
+                CONF_POLL_INTERVAL_MEDIUM: DEFAULT_POLL_INTERVAL_MEDIUM,
+                CONF_POLL_INTERVAL_SLOW: DEFAULT_POLL_INTERVAL_SLOW,
+            },
+            "network_settings": {
+                CONF_REQUEST_DELAY: DEFAULT_REQUEST_DELAY,
+                CONF_REQUEST_TIMEOUT: DEFAULT_REQUEST_TIMEOUT,
+                CONF_FAILURE_THRESHOLD: DEFAULT_FAILURE_THRESHOLD,
+            },
+            "power_settings": {
+                CONF_ACTION_CHARGE_POWER: DEFAULT_ACTION_CHARGE_POWER,
+                CONF_ACTION_DISCHARGE_POWER: DEFAULT_ACTION_DISCHARGE_POWER,
+                CONF_SOCKET_LIMIT: False,
+            },
         },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
+    # Verify data is flattened when stored
+    assert result["data"][CONF_POLL_INTERVAL_FAST] == DEFAULT_POLL_INTERVAL_FAST
+    assert result["data"][CONF_SOCKET_LIMIT] is False
+
+
+async def test_options_flow_socket_limit_default_by_model(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test socket limit default is enabled for Venus C/D/E models."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Venus C",
+        },
+    )
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    assert result["type"] == FlowResultType.FORM
+
+    # Schema now uses sections - find power_settings section and check socket_limit default
+    schema = result["data_schema"].schema
+    power_section_key = next(
+        key for key in schema if getattr(key, "schema", None) == "power_settings"
+    )
+    # The section value contains a schema - extract it
+    power_schema = schema[power_section_key].schema.schema
+    socket_key = next(
+        key for key in power_schema if getattr(key, "schema", None) == CONF_SOCKET_LIMIT
+    )
+    assert socket_key.default() is True
 
 
 @contextmanager

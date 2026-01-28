@@ -20,11 +20,14 @@ from homeassistant.helpers.typing import ConfigType, TemplateVarsType
 from .const import (
     CONF_ACTION_CHARGE_POWER,
     CONF_ACTION_DISCHARGE_POWER,
+    CONF_SOCKET_LIMIT,
     DATA_UDP_CLIENT,
     DEFAULT_ACTION_CHARGE_POWER,
     DEFAULT_ACTION_DISCHARGE_POWER,
     DEFAULT_UDP_PORT,
     DOMAIN,
+    device_default_socket_limit,
+    get_device_power_limits,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -125,6 +128,8 @@ async def async_call_action_from_config(
     power, enable = _get_action_parameters(
         action_type, charge_power, discharge_power
     )
+    if enable:
+        _validate_action_power(entry, power)
     command = _build_set_mode_command(power, enable)
 
     # Get shared UDP client from hass.data
@@ -217,6 +222,29 @@ def _get_action_parameters(
     if action_type == ACTION_STOP:
         return STOP_POWER, 0
     raise ValueError(f"Unknown action type: {action_type}")
+
+
+def _validate_action_power(entry: Any, power: int) -> None:
+    """Validate action power against device limits."""
+    device_type = entry.data.get("device_type")
+    socket_limit = entry.options.get(
+        CONF_SOCKET_LIMIT,
+        device_default_socket_limit(device_type),
+    )
+    min_power, max_power = get_device_power_limits(
+        device_type,
+        socket_limit=socket_limit,
+    )
+    if power < min_power or power > max_power:
+        raise InvalidDeviceAutomationConfig(
+            translation_domain=DOMAIN,
+            translation_key="power_out_of_range",
+            translation_placeholders={
+                "requested": power,
+                "min": min_power,
+                "max": max_power,
+            },
+        )
 
 
 def _build_set_mode_command(power: int, enable: int) -> str:

@@ -63,27 +63,43 @@
   "options": {
     "step": {
       "init": {
-        "title": "Polling settings",
-        "description": "Configure how often the device is polled for data. Lower values provide more real-time data but increase network traffic.",
+        "title": "Marstek Options",
+        "description": "Configure device polling and power settings.",
+        "sections": {
+          "polling_settings": {
+            "name": "Polling Intervals",
+            "description": "How often to poll the device for different types of data"
+          },
+          "network_settings": {
+            "name": "Network Settings",
+            "description": "Request timing and error handling"
+          },
+          "power_settings": {
+            "name": "Power Settings",
+            "description": "Default power values for device actions"
+          }
+        },
         "data": {
-          "poll_interval_fast": "Fast polling interval (seconds)",
-          "poll_interval_medium": "Medium polling interval (seconds)",
-          "poll_interval_slow": "Slow polling interval (seconds)",
-          "request_delay": "Delay between API requests (seconds)",
-          "request_timeout": "Request timeout (seconds)",
+          "poll_interval_fast": "Fast polling interval",
+          "poll_interval_medium": "Medium polling interval",
+          "poll_interval_slow": "Slow polling interval",
+          "request_delay": "Delay between requests",
+          "request_timeout": "Request timeout",
           "failure_threshold": "Failures before unavailable",
-          "action_charge_power": "Default charge power (W)",
-          "action_discharge_power": "Default discharge power (W)"
+          "action_charge_power": "Default charge power",
+          "action_discharge_power": "Default discharge power",
+          "socket_limit": "Use 800 W socket limit"
         },
         "data_description": {
-          "poll_interval_fast": "How often to poll battery/power data (ES.GetMode, ES.GetStatus, EM.GetStatus)",
-          "poll_interval_medium": "How often to poll solar/PV data",
-          "poll_interval_slow": "How often to poll WiFi signal and battery temperature",
-          "request_delay": "Delay between consecutive API requests (device stability)",
-          "request_timeout": "How long to wait for a response from the device before timing out",
-          "failure_threshold": "Number of consecutive failures before entities become unavailable (1 = immediate, higher = more tolerant)",
+          "poll_interval_fast": "Battery & power data (ES.GetMode, ES.GetStatus, EM.GetStatus)",
+          "poll_interval_medium": "Solar/PV data",
+          "poll_interval_slow": "WiFi signal and battery temperature",
+          "request_delay": "Delay between consecutive API requests for device stability",
+          "request_timeout": "How long to wait for a response before timing out",
+          "failure_threshold": "Number of consecutive failures before entities become unavailable",
           "action_charge_power": "Default power for charge actions (negative value)",
-          "action_discharge_power": "Default power for discharge actions (positive value)"
+          "action_discharge_power": "Default power for discharge actions (positive value)",
+          "socket_limit": "Enforce the 800 W plug socket limit for charge and discharge actions"
         }
       }
     }
@@ -343,6 +359,9 @@
     },
     "invalid_time_range": {
       "message": "End time must be after start time (start: {start}, end: {end})."
+    },
+    "power_out_of_range": {
+      "message": "Requested power {requested} W is outside the supported range ({min} W to {max} W) for this device."
     }
   },
   "issues": {

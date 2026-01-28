@@ -21,11 +21,14 @@ from .const import (
     API_MODE_MANUAL,
     API_MODE_PASSIVE,
     CMD_ES_SET_MODE,
+    CONF_SOCKET_LIMIT,
     DATA_UDP_CLIENT,
     DEFAULT_UDP_PORT,
     DOMAIN,
     WEEKDAY_MAP,
     WEEKDAYS_ALL,
+    device_default_socket_limit,
+    get_device_power_limits,
 )
 
 if TYPE_CHECKING:
@@ -181,6 +184,31 @@ def _get_entry_and_client_from_device_id(
     )
 
 
+def _get_power_limits(entry: MarstekConfigEntry) -> tuple[int, int]:
+    """Get power limits for a device based on model and socket limit option."""
+    device_type = entry.data.get("device_type")
+    socket_limit = entry.options.get(
+        CONF_SOCKET_LIMIT,
+        device_default_socket_limit(device_type),
+    )
+    return get_device_power_limits(device_type, socket_limit=socket_limit)
+
+
+def _validate_power_for_device(power: int, entry: MarstekConfigEntry) -> None:
+    """Validate requested power against device limits."""
+    min_power, max_power = _get_power_limits(entry)
+    if power < min_power or power > max_power:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="power_out_of_range",
+            translation_placeholders={
+                "requested": power,
+                "min": min_power,
+                "max": max_power,
+            },
+        )
+
+
 async def _send_mode_command(
     udp_client: MarstekUDPClient,
     host: str,
@@ -254,6 +282,8 @@ async def async_set_passive_mode(hass: HomeAssistant, call: ServiceCall) -> None
 
     entry, udp_client, host, port = _get_entry_and_client_from_device_id(hass, device_id)
 
+    _validate_power_for_device(power, entry)
+
     config = {
         "mode": API_MODE_PASSIVE,
         "passive_cfg": {
@@ -286,6 +316,8 @@ async def async_set_manual_schedule(hass: HomeAssistant, call: ServiceCall) -> N
     enable = call.data[ATTR_ENABLE]
 
     entry, udp_client, host, port = _get_entry_and_client_from_device_id(hass, device_id)
+
+    _validate_power_for_device(power, entry)
 
     # Format times as HH:MM
     start_time_str = start_time.strftime("%H:%M")
@@ -335,6 +367,7 @@ async def async_clear_manual_schedules(hass: HomeAssistant, call: ServiceCall) -
     device_id = _get_device_id_from_call(call)
 
     entry, udp_client, host, port = _get_entry_and_client_from_device_id(hass, device_id)
+    min_power, max_power = _get_power_limits(entry)
 
     _LOGGER.info("Clearing 10 manual schedule slots for device %s...", device_id)
     
@@ -407,6 +440,7 @@ async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> 
     schedules = call.data[ATTR_SCHEDULES]
 
     entry, udp_client, host, port = _get_entry_and_client_from_device_id(hass, device_id)
+    min_power, max_power = _get_power_limits(entry)
 
     # Pause polling once for all schedule commands
     await udp_client.pause_polling(host)
@@ -421,6 +455,16 @@ async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> 
             start_time_str = _parse_time_string(start_time_raw)
             end_time_str = _parse_time_string(end_time_raw)
             power = schedule.get(ATTR_POWER, 0)
+            if power < min_power or power > max_power:
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="power_out_of_range",
+                    translation_placeholders={
+                        "requested": power,
+                        "min": min_power,
+                        "max": max_power,
+                    },
+                )
             days = schedule.get(ATTR_DAYS, ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
             enable = schedule.get(ATTR_ENABLE, True)
 

@@ -9,7 +9,12 @@ from homeassistant.const import CONF_DEVICE_ID, CONF_DOMAIN, CONF_TYPE
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import format_mac
 
-from custom_components.marstek.const import DOMAIN
+from custom_components.marstek.const import (
+    CONF_ACTION_CHARGE_POWER,
+    CONF_ACTION_DISCHARGE_POWER,
+    CONF_SOCKET_LIMIT,
+    DOMAIN,
+)
 from custom_components.marstek.device_action import (
     ACTION_CHARGE,
     ACTION_DISCHARGE,
@@ -137,3 +142,146 @@ async def test_device_action_invalid_device(hass, mock_config_entry):
     from homeassistant.components.device_automation import InvalidDeviceAutomationConfig
     with pytest.raises(InvalidDeviceAutomationConfig):
         await async_call_action_from_config(hass, config, {}, None)
+
+
+async def test_device_action_power_out_of_range_socket_limit_default(
+    hass, mock_config_entry
+):
+    """Test device action rejects power above socket limit by default for Venus E."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Venus E",
+        },
+        options={
+            CONF_ACTION_DISCHARGE_POWER: 2500,
+        },
+    )
+
+    client = _mock_client()
+    with _patch_all(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_IDENTIFIER)})
+    assert device
+
+    config = {
+        CONF_DEVICE_ID: device.id,
+        CONF_DOMAIN: DOMAIN,
+        CONF_TYPE: ACTION_DISCHARGE,
+    }
+
+    from homeassistant.components.device_automation import InvalidDeviceAutomationConfig
+    with pytest.raises(InvalidDeviceAutomationConfig, match="Requested power"):
+        await async_call_action_from_config(hass, config, {}, None)
+
+
+async def test_device_action_power_out_of_range_model_limit(hass, mock_config_entry):
+    """Test device action rejects power above model max for Venus A."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Venus A",
+        },
+        options={
+            CONF_ACTION_CHARGE_POWER: -1500,
+        },
+    )
+
+    client = _mock_client()
+    with _patch_all(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_IDENTIFIER)})
+    assert device
+
+    config = {
+        CONF_DEVICE_ID: device.id,
+        CONF_DOMAIN: DOMAIN,
+        CONF_TYPE: ACTION_CHARGE,
+    }
+
+    from homeassistant.components.device_automation import InvalidDeviceAutomationConfig
+    with pytest.raises(InvalidDeviceAutomationConfig, match="Requested power"):
+        await async_call_action_from_config(hass, config, {}, None)
+
+
+async def test_device_action_charge_ignores_socket_limit_default(
+    hass, mock_config_entry
+):
+    """Test charge action allows power above 800 W when socket limit is on by default."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Venus E",
+        },
+        options={
+            CONF_ACTION_CHARGE_POWER: -2000,
+        },
+    )
+
+    client = _mock_client()
+    with _patch_all(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_IDENTIFIER)})
+    assert device
+
+    config = {
+        CONF_DEVICE_ID: device.id,
+        CONF_DOMAIN: DOMAIN,
+        CONF_TYPE: ACTION_CHARGE,
+    }
+
+    await async_call_action_from_config(hass, config, {}, None)
+    client.pause_polling.assert_called()
+    client.resume_polling.assert_called()
+
+
+async def test_device_action_charge_ignores_socket_limit_explicit_true(
+    hass, mock_config_entry
+):
+    """Test charge action allows power above 800 W when socket limit is explicitly enabled."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Venus E",
+        },
+        options={
+            CONF_ACTION_CHARGE_POWER: -2000,
+            CONF_SOCKET_LIMIT: True,
+        },
+    )
+
+    client = _mock_client()
+    with _patch_all(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_IDENTIFIER)})
+    assert device
+
+    config = {
+        CONF_DEVICE_ID: device.id,
+        CONF_DOMAIN: DOMAIN,
+        CONF_TYPE: ACTION_CHARGE,
+    }
+
+    await async_call_action_from_config(hass, config, {}, None)
+    client.pause_polling.assert_called()
+    client.resume_polling.assert_called()

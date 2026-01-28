@@ -13,7 +13,9 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_PORT
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device_registry import format_mac
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -40,6 +42,7 @@ except ImportError:
 from .const import (
     CONF_ACTION_CHARGE_POWER,
     CONF_ACTION_DISCHARGE_POWER,
+    CONF_SOCKET_LIMIT,
     CONF_FAILURE_THRESHOLD,
     CONF_POLL_INTERVAL_FAST,
     CONF_POLL_INTERVAL_MEDIUM,
@@ -56,6 +59,7 @@ from .const import (
     DEFAULT_REQUEST_TIMEOUT,
     DEFAULT_UDP_PORT,
     DOMAIN,
+    device_default_socket_limit,
 )
 from .discovery import discover_devices, get_device_info
 
@@ -534,7 +538,12 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         """Manage the Marstek options."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            # Flatten section data for storage
+            flat_data: dict[str, Any] = {}
+            for section_data in user_input.values():
+                if isinstance(section_data, dict):
+                    flat_data.update(section_data)
+            return self.async_create_entry(title="", data=flat_data)
 
         # Get current values from options, falling back to defaults
         current_fast = self.config_entry.options.get(
@@ -561,105 +570,141 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
         current_discharge_power = self.config_entry.options.get(
             CONF_ACTION_DISCHARGE_POWER, DEFAULT_ACTION_DISCHARGE_POWER
         )
+        current_socket_limit = self.config_entry.options.get(
+            CONF_SOCKET_LIMIT,
+            device_default_socket_limit(self.config_entry.data.get("device_type")),
+        )
+
+        # Build schema with collapsible sections for better UX
+        polling_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_POLL_INTERVAL_FAST,
+                    default=current_fast,
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=10,
+                        max=300,
+                        step=5,
+                        unit_of_measurement="seconds",
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_POLL_INTERVAL_MEDIUM,
+                    default=current_medium,
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=30,
+                        max=600,
+                        step=10,
+                        unit_of_measurement="seconds",
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_POLL_INTERVAL_SLOW,
+                    default=current_slow,
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=60,
+                        max=1800,
+                        step=30,
+                        unit_of_measurement="seconds",
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+            }
+        )
+
+        network_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_REQUEST_DELAY,
+                    default=current_delay,
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=1.0,
+                        max=30.0,
+                        step=0.5,
+                        unit_of_measurement="seconds",
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_REQUEST_TIMEOUT,
+                    default=current_timeout,
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=5.0,
+                        max=60.0,
+                        step=1.0,
+                        unit_of_measurement="seconds",
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_FAILURE_THRESHOLD,
+                    default=current_failure_threshold,
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=1,
+                        max=10,
+                        step=1,
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+            }
+        )
+
+        power_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_ACTION_CHARGE_POWER,
+                    default=current_charge_power,
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=-5000,
+                        max=0,
+                        step=50,
+                        unit_of_measurement="W",
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_ACTION_DISCHARGE_POWER,
+                    default=current_discharge_power,
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=0,
+                        max=5000,
+                        step=50,
+                        unit_of_measurement="W",
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_SOCKET_LIMIT,
+                    default=current_socket_limit,
+                ): BooleanSelector(),
+            }
+        )
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_POLL_INTERVAL_FAST,
-                        default=current_fast,
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=10,
-                            max=300,
-                            step=5,
-                            unit_of_measurement="seconds",
-                            mode=NumberSelectorMode.BOX,
-                        )
+                    vol.Required("polling_settings"): section(
+                        polling_schema,
+                        {"collapsed": False},
                     ),
-                    vol.Required(
-                        CONF_POLL_INTERVAL_MEDIUM,
-                        default=current_medium,
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=30,
-                            max=600,
-                            step=10,
-                            unit_of_measurement="seconds",
-                            mode=NumberSelectorMode.BOX,
-                        )
+                    vol.Required("network_settings"): section(
+                        network_schema,
+                        {"collapsed": True},
                     ),
-                    vol.Required(
-                        CONF_POLL_INTERVAL_SLOW,
-                        default=current_slow,
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=60,
-                            max=1800,
-                            step=30,
-                            unit_of_measurement="seconds",
-                            mode=NumberSelectorMode.BOX,
-                        )
-                    ),
-                    vol.Required(
-                        CONF_REQUEST_DELAY,
-                        default=current_delay,
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=1.0,
-                            max=30.0,
-                            step=0.5,
-                            unit_of_measurement="seconds",
-                            mode=NumberSelectorMode.BOX,
-                        )
-                    ),
-                    vol.Required(
-                        CONF_REQUEST_TIMEOUT,
-                        default=current_timeout,
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=5.0,
-                            max=60.0,
-                            step=1.0,
-                            unit_of_measurement="seconds",
-                            mode=NumberSelectorMode.BOX,
-                        )
-                    ),
-                    vol.Required(
-                        CONF_FAILURE_THRESHOLD,
-                        default=current_failure_threshold,
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=1,
-                            max=10,
-                            step=1,
-                            mode=NumberSelectorMode.BOX,
-                        )
-                    ),
-                    vol.Required(
-                        CONF_ACTION_CHARGE_POWER,
-                        default=current_charge_power,
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=-5000,
-                            max=0,
-                            step=50,
-                            unit_of_measurement="W",
-                            mode=NumberSelectorMode.BOX,
-                        )
-                    ),
-                    vol.Required(
-                        CONF_ACTION_DISCHARGE_POWER,
-                        default=current_discharge_power,
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0,
-                            max=5000,
-                            step=50,
-                            unit_of_measurement="W",
-                            mode=NumberSelectorMode.BOX,
-                        )
+                    vol.Required("power_settings"): section(
+                        power_schema,
+                        {"collapsed": True},
                     ),
                 }
             ),

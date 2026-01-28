@@ -74,6 +74,7 @@ WEEKDAYS_ALL: Final = 127  # All days enabled
 # Power limits (in watts)
 MAX_CHARGE_POWER: Final = -5000  # Negative for charging
 MAX_DISCHARGE_POWER: Final = 5000  # Positive for discharging
+SOCKET_LIMIT_POWER: Final = 800  # Plug socket limit (typical NL/BE)
 
 # Polling interval configuration (in seconds)
 # Options keys
@@ -85,6 +86,7 @@ CONF_REQUEST_TIMEOUT: Final = "request_timeout"
 CONF_FAILURE_THRESHOLD: Final = "failure_threshold"
 CONF_ACTION_CHARGE_POWER: Final = "action_charge_power"
 CONF_ACTION_DISCHARGE_POWER: Final = "action_discharge_power"
+CONF_SOCKET_LIMIT: Final = "socket_limit"
 
 # Default polling intervals
 DEFAULT_POLL_INTERVAL_FAST: Final = 30  # Real-time power data (ES.GetMode, ES.GetStatus, EM.GetStatus)
@@ -95,6 +97,7 @@ DEFAULT_REQUEST_TIMEOUT: Final = 10.0  # Timeout for each API request
 DEFAULT_FAILURE_THRESHOLD: Final = 3  # Failures before entities become unavailable
 DEFAULT_ACTION_CHARGE_POWER: Final = -1300  # W (negative for charging)
 DEFAULT_ACTION_DISCHARGE_POWER: Final = 800  # W (positive for discharging)
+DEFAULT_SOCKET_LIMIT: Final = False
 
 INITIAL_SETUP_REQUEST_DELAY: Final = 2.0  # Faster delay during first data fetch
 
@@ -105,6 +108,34 @@ _DEVICE_PV_SUPPORT_TOKENS: Final[frozenset[str]] = frozenset({
     "venusa",
     "venusd",
 })
+
+# Device power limits (AC charge/discharge) in watts per model
+# Values are maximum absolute power in either direction unless socket limit is enabled.
+_DEVICE_POWER_LIMITS: Final[dict[str, int]] = {
+    "venusa": 1200,
+    "venusc": 2500,
+    "venusd": 2200,
+    "venuse": 2500,
+}
+
+_DEVICE_SOCKET_LIMIT_DEFAULTS: Final[frozenset[str]] = frozenset({
+    "venusc",
+    "venusd",
+    "venuse",
+})
+
+
+def _normalize_device_type(device_type: str | None) -> str:
+    """Normalize device type for matching (lowercase, alnum only)."""
+    if not device_type:
+        return ""
+    return "".join(ch for ch in device_type if ch.isalnum()).lower()
+
+
+def device_default_socket_limit(device_type: str | None) -> bool:
+    """Get default socket limit setting for a device type."""
+    normalized = _normalize_device_type(device_type)
+    return any(token in normalized for token in _DEVICE_SOCKET_LIMIT_DEFAULTS)
 
 
 def device_supports_pv(device_type: str | None) -> bool:
@@ -118,8 +149,30 @@ def device_supports_pv(device_type: str | None) -> bool:
     Returns:
         True if device supports PV, False otherwise
     """
-    if not device_type:
-        return False
-    # Normalize by removing non-alphanumerics and lowercasing for stable matching
-    normalized = "".join(ch for ch in device_type if ch.isalnum()).lower()
+    normalized = _normalize_device_type(device_type)
     return any(token in normalized for token in _DEVICE_PV_SUPPORT_TOKENS)
+
+
+def get_device_power_limits(
+    device_type: str | None,
+    *,
+    socket_limit: bool = False,
+) -> tuple[int, int]:
+    """Get per-device power limits for charge/discharge.
+
+    Returns:
+        (min_charge_power, max_discharge_power)
+    """
+    normalized = _normalize_device_type(device_type)
+    max_abs = None
+    for token, limit in _DEVICE_POWER_LIMITS.items():
+        if token and token in normalized:
+            max_abs = limit
+            break
+
+    if max_abs is None:
+        max_abs = MAX_DISCHARGE_POWER
+
+    min_charge_power = -max_abs
+    max_discharge_power = SOCKET_LIMIT_POWER if socket_limit else max_abs
+    return min_charge_power, max_discharge_power
