@@ -1,6 +1,6 @@
 """Tests for the Marstek repairs module."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -16,38 +16,48 @@ from custom_components.marstek.repairs import (
 
 async def test_async_create_fix_flow(hass: HomeAssistant) -> None:
     """Test creating a fix flow."""
-    entry_id = "test_entry_id"
-    data = {"entry_id": entry_id}
+    data = {"entry_id": "test_entry_id"}
 
     flow = await async_create_fix_flow(hass, "cannot_connect_test", data)
 
     assert isinstance(flow, CannotConnectRepairFlow)
-    assert flow._entry_id == entry_id
 
 
-async def test_async_create_fix_flow_no_entry_id() -> None:
-    """Test creating a fix flow without entry_id raises error."""
-    hass = MagicMock(spec=HomeAssistant)
-
-    with pytest.raises(ValueError, match="No entry_id in issue data"):
-        await async_create_fix_flow(hass, "cannot_connect_test", {})
+async def test_async_create_fix_flow_no_data(hass: HomeAssistant) -> None:
+    """Test creating a fix flow without data returns flow (handles in step)."""
+    flow = await async_create_fix_flow(hass, "cannot_connect_test", {})
+    assert isinstance(flow, CannotConnectRepairFlow)
 
 
-async def test_async_create_fix_flow_none_data() -> None:
-    """Test creating a fix flow with None data raises error."""
-    hass = MagicMock(spec=HomeAssistant)
+async def test_async_create_fix_flow_none_data(hass: HomeAssistant) -> None:
+    """Test creating a fix flow with None data returns flow (handles in step)."""
+    flow = await async_create_fix_flow(hass, "cannot_connect_test", None)
+    assert isinstance(flow, CannotConnectRepairFlow)
 
-    with pytest.raises(ValueError, match="No entry_id in issue data"):
-        await async_create_fix_flow(hass, "cannot_connect_test", None)
+
+async def test_repair_flow_abort_missing_config(
+    hass: HomeAssistant,
+) -> None:
+    """Test repair flow aborts when data is missing."""
+    flow = CannotConnectRepairFlow()
+    flow.hass = hass
+    flow.issue_id = "cannot_connect_test"
+    flow.data = {}  # No entry_id
+
+    result = await flow.async_step_init()
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "missing_config"
 
 
 async def test_repair_flow_abort_entry_not_found(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:
     """Test repair flow aborts when entry not found."""
-    flow = CannotConnectRepairFlow("nonexistent_entry_id")
+    flow = CannotConnectRepairFlow()
     flow.hass = hass
     flow.issue_id = "cannot_connect_nonexistent"
+    flow.data = {"entry_id": "nonexistent_entry_id"}
 
     result = await flow.async_step_init()
 
@@ -61,9 +71,10 @@ async def test_repair_flow_shows_form(
     """Test repair flow shows form with entry data."""
     mock_config_entry.add_to_hass(hass)
 
-    flow = CannotConnectRepairFlow(mock_config_entry.entry_id)
+    flow = CannotConnectRepairFlow()
     flow.hass = hass
     flow.issue_id = f"cannot_connect_{mock_config_entry.entry_id}"
+    flow.data = {"entry_id": mock_config_entry.entry_id}
 
     result = await flow.async_step_init()
 
@@ -98,9 +109,10 @@ async def test_repair_flow_submit_updates_entry(
     issue_registry = ir.async_get(hass)
     assert issue_registry.async_get_issue(DOMAIN, issue_id) is not None
 
-    flow = CannotConnectRepairFlow(mock_config_entry.entry_id)
+    flow = CannotConnectRepairFlow()
     flow.hass = hass
     flow.issue_id = issue_id
+    flow.data = {"entry_id": mock_config_entry.entry_id}
 
     device_info = {
         "ip": "192.168.1.100",
@@ -140,9 +152,10 @@ async def test_repair_flow_cannot_connect(
     """Test repair flow shows error when device cannot be reached."""
     mock_config_entry.add_to_hass(hass)
 
-    flow = CannotConnectRepairFlow(mock_config_entry.entry_id)
+    flow = CannotConnectRepairFlow()
     flow.hass = hass
     flow.issue_id = f"cannot_connect_{mock_config_entry.entry_id}"
+    flow.data = {"entry_id": mock_config_entry.entry_id}
 
     with patch(
         "custom_components.marstek.repairs.get_device_info",
@@ -160,9 +173,10 @@ async def test_repair_flow_unique_id_mismatch(
     """Test repair flow shows error when device is different."""
     mock_config_entry.add_to_hass(hass)
 
-    flow = CannotConnectRepairFlow(mock_config_entry.entry_id)
+    flow = CannotConnectRepairFlow()
     flow.hass = hass
     flow.issue_id = f"cannot_connect_{mock_config_entry.entry_id}"
+    flow.data = {"entry_id": mock_config_entry.entry_id}
 
     # Return a device with different MAC
     device_info = {

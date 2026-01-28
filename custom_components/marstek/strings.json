@@ -439,7 +439,8 @@
           "unique_id_mismatch": "The device at this address is a different device"
         },
         "abort": {
-          "entry_not_found": "The configuration entry was not found."
+          "entry_not_found": "The configuration entry was not found.",
+          "missing_config": "Missing configuration data for this repair."
         }
       }
     }
