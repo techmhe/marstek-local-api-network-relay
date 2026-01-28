@@ -373,7 +373,6 @@ async def async_clear_manual_schedules(hass: HomeAssistant, call: ServiceCall) -
     device_id = _get_device_id_from_call(call)
 
     entry, udp_client, host, port = _get_entry_and_client_from_device_id(hass, device_id)
-    min_power, max_power = _get_power_limits(entry)
 
     _LOGGER.info("Clearing 10 manual schedule slots for device %s...", device_id)
     
