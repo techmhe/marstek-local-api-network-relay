@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import traceback
 from datetime import datetime
+import re
+import traceback
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -40,6 +41,20 @@ TO_REDACT = {
     "SSID",
 }
 
+_REDACT_PATTERNS = (
+    re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
+    re.compile(r"\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b"),
+    re.compile(r"\b[0-9A-Fa-f]{12}\b"),
+)
+
+
+def _redact_text(text: str) -> str:
+    """Redact sensitive patterns from text."""
+    redacted = text
+    for pattern in _REDACT_PATTERNS:
+        redacted = pattern.sub("**REDACTED**", redacted)
+    return redacted
+
 
 def _format_exception(exc: BaseException | None) -> dict[str, Any] | None:
     """Format exception with full traceback for diagnostics."""
@@ -48,18 +63,24 @@ def _format_exception(exc: BaseException | None) -> dict[str, Any] | None:
 
     result: dict[str, Any] = {
         "type": type(exc).__name__,
-        "message": str(exc),
-        "traceback": traceback.format_exception(type(exc), exc, exc.__traceback__),
+        "message": _redact_text(str(exc)),
+        "traceback": [
+            _redact_text(line)
+            for line in traceback.format_exception(type(exc), exc, exc.__traceback__)
+        ],
     }
 
     # Include the original cause if this is a chained exception
     if exc.__cause__ is not None:
         result["cause"] = {
             "type": type(exc.__cause__).__name__,
-            "message": str(exc.__cause__),
-            "traceback": traceback.format_exception(
-                type(exc.__cause__), exc.__cause__, exc.__cause__.__traceback__
-            ),
+            "message": _redact_text(str(exc.__cause__)),
+            "traceback": [
+                _redact_text(line)
+                for line in traceback.format_exception(
+                    type(exc.__cause__), exc.__cause__, exc.__cause__.__traceback__
+                )
+            ],
         }
 
     return result

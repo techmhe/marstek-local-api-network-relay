@@ -532,10 +532,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     
     Services are registered once globally (idempotent registration).
     """
-    # Guard: only register services once
-    if hass.services.has_service(DOMAIN, SERVICE_SET_PASSIVE_MODE):
-        return
-
     async def handle_set_passive_mode(call: ServiceCall) -> None:
         """Handle the set_passive_mode service call."""
         await async_set_passive_mode(hass, call)
@@ -556,40 +552,45 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Handle the request_data_sync service call."""
         await async_request_data_sync(hass, call)
 
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_PASSIVE_MODE,
-        handle_set_passive_mode,
-        schema=SERVICE_SET_PASSIVE_MODE_SCHEMA,
-    )
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_PASSIVE_MODE):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_PASSIVE_MODE,
+            handle_set_passive_mode,
+            schema=SERVICE_SET_PASSIVE_MODE_SCHEMA,
+        )
 
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_MANUAL_SCHEDULE,
-        handle_set_manual_schedule,
-        schema=SERVICE_SET_MANUAL_SCHEDULE_SCHEMA,
-    )
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_MANUAL_SCHEDULE):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_MANUAL_SCHEDULE,
+            handle_set_manual_schedule,
+            schema=SERVICE_SET_MANUAL_SCHEDULE_SCHEMA,
+        )
 
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_CLEAR_MANUAL_SCHEDULES,
-        handle_clear_manual_schedules,
-        schema=SERVICE_CLEAR_MANUAL_SCHEDULES_SCHEMA,
-    )
+    if not hass.services.has_service(DOMAIN, SERVICE_CLEAR_MANUAL_SCHEDULES):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_CLEAR_MANUAL_SCHEDULES,
+            handle_clear_manual_schedules,
+            schema=SERVICE_CLEAR_MANUAL_SCHEDULES_SCHEMA,
+        )
 
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_MANUAL_SCHEDULES,
-        handle_set_manual_schedules,
-        schema=SERVICE_SET_MANUAL_SCHEDULES_SCHEMA,
-    )
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_MANUAL_SCHEDULES):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_MANUAL_SCHEDULES,
+            handle_set_manual_schedules,
+            schema=SERVICE_SET_MANUAL_SCHEDULES_SCHEMA,
+        )
 
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_REQUEST_DATA_SYNC,
-        handle_request_data_sync,
-        schema=SERVICE_REQUEST_DATA_SYNC_SCHEMA,
-    )
+    if not hass.services.has_service(DOMAIN, SERVICE_REQUEST_DATA_SYNC):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_REQUEST_DATA_SYNC,
+            handle_request_data_sync,
+            schema=SERVICE_REQUEST_DATA_SYNC_SCHEMA,
+        )
 
 
 async def async_unload_services(hass: HomeAssistant) -> None:
