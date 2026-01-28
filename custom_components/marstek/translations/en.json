@@ -291,6 +291,16 @@
       }
     }
   },
+  "device_automation": {
+    "action_type": {
+      "charge": "Charge battery",
+      "discharge": "Discharge battery",
+      "stop": "Stop charging/discharging"
+    },
+    "extra_fields": {
+      "power": "Power (W)"
+    }
+  },
   "services": {
     "set_passive_mode": {
       "name": "Set passive mode",

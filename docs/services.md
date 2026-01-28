@@ -175,15 +175,46 @@ Trigger an immediate refresh.
 
 - `device_id` (optional): when omitted, all Marstek devices are refreshed
 
-## Device actions (automation UI)
+---
 
-Besides services, the integration also exposes **device actions** you can use in automations:
+## Device Actions
 
-- Charge
-- Discharge
-- Stop
+The integration provides **device actions** for use in automations. These appear in the automation editor when you select "Device" as the action type and choose your Marstek battery.
 
-These actions use the per-device **Power settings** from [Options](options.md) and perform retries + verification.
+<img src="screenshots/automation-action.png" alt="Device action in automation" width="520" />
+
+### Charge battery
+
+Starts charging the battery at the specified power.
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| Power (W) | No | Charge power in watts (0–5000). If omitted, uses the **Default charge power** from device options. |
+
+### Discharge battery
+
+Starts discharging the battery at the specified power.
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| Power (W) | No | Discharge power in watts (0–5000). If omitted, uses the **Default discharge power** from device options. |
+
+### Stop charging/discharging
+
+Immediately stops any active charge or discharge operation. No parameters required.
+
+### Power validation
+
+All device actions respect the **Socket limit** setting configured in [Options](options.md). If socket limit is enabled (default for Venus C/D/E), power values above 800 W will be rejected.
+
+### Technical details
+
+- Actions use **Manual mode** internally with a 24-hour schedule (00:00–23:59, all days)
+- Commands include retry logic (up to 8 attempts) with exponential backoff
+- Verification confirms the device responded correctly before completing
+- Polling is paused during command execution to avoid UDP traffic conflicts
+
+---
 
 ## Notes on safety & responsiveness
 

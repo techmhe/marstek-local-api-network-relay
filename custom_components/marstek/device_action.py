@@ -60,11 +60,17 @@ MANUAL_MODE_START_TIME = "00:00"
 MANUAL_MODE_END_TIME = "23:59"
 MANUAL_MODE_WEEK_SET = 127  # All days of week
 
+# Power attribute for action config
+ATTR_POWER = "power"
+
 ACTION_SCHEMA = cv.DEVICE_ACTION_BASE_SCHEMA.extend(
     {
         vol.Required(CONF_DOMAIN): vol.In((DOMAIN,)),
         vol.Required(CONF_DEVICE_ID): cv.string,
         vol.Required(CONF_TYPE): vol.In(ACTION_TYPES),
+        vol.Optional(ATTR_POWER): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=5000)
+        ),
         vol.Optional("entity_id"): cv.entity_id,
     }
 )
@@ -118,18 +124,33 @@ async def async_call_action_from_config(
             translation_placeholders={"device_id": device_id},
         )
 
-    charge_power = entry.options.get(
-        CONF_ACTION_CHARGE_POWER, DEFAULT_ACTION_CHARGE_POWER
-    )
-    discharge_power = entry.options.get(
-        CONF_ACTION_DISCHARGE_POWER, DEFAULT_ACTION_DISCHARGE_POWER
-    )
+    # Get power from action config or fall back to options
+    action_power = config.get(ATTR_POWER)
+    
+    if action_type == ACTION_CHARGE:
+        default_power = entry.options.get(
+            CONF_ACTION_CHARGE_POWER, DEFAULT_ACTION_CHARGE_POWER
+        )
+        # Use action power if provided, otherwise use default (both are positive in config)
+        power_value = action_power if action_power is not None else abs(default_power)
+        # Charge uses negative power internally
+        power = -int(power_value)
+        enable = 1
+    elif action_type == ACTION_DISCHARGE:
+        default_power = entry.options.get(
+            CONF_ACTION_DISCHARGE_POWER, DEFAULT_ACTION_DISCHARGE_POWER
+        )
+        # Use action power if provided, otherwise use default
+        power = int(action_power if action_power is not None else default_power)
+        enable = 1
+    else:  # ACTION_STOP
+        power = STOP_POWER
+        enable = 0
 
-    power, enable = _get_action_parameters(
-        action_type, charge_power, discharge_power
-    )
+    # Validate power against device limits (including socket limit)
     if enable:
-        _validate_action_power(entry, power)
+        _validate_action_power(entry, abs(power))
+
     command = _build_set_mode_command(power, enable)
 
     # Get shared UDP client from hass.data
@@ -206,22 +227,21 @@ async def async_get_action_capabilities(
     hass: HomeAssistant, config: ConfigType
 ) -> dict[str, vol.Schema]:
     """List action capabilities."""
+    action_type = config.get(CONF_TYPE)
+    
+    # Charge and discharge actions have power parameter, stop does not
+    if action_type in (ACTION_CHARGE, ACTION_DISCHARGE):
+        return {
+            "extra_fields": vol.Schema(
+                {
+                    vol.Optional(ATTR_POWER): vol.All(
+                        vol.Coerce(int), vol.Range(min=0, max=5000)
+                    ),
+                }
+            )
+        }
+    
     return {"extra_fields": vol.Schema({})}
-
-
-def _get_action_parameters(
-    action_type: str,
-    charge_power: int,
-    discharge_power: int,
-) -> tuple[int, int]:
-    """Get power and enable parameters for an action type."""
-    if action_type == ACTION_CHARGE:
-        return int(charge_power), 1
-    if action_type == ACTION_DISCHARGE:
-        return int(discharge_power), 1
-    if action_type == ACTION_STOP:
-        return STOP_POWER, 0
-    raise ValueError(f"Unknown action type: {action_type}")
 
 
 def _validate_action_power(entry: Any, power: int) -> None:
@@ -240,9 +260,9 @@ def _validate_action_power(entry: Any, power: int) -> None:
             translation_domain=DOMAIN,
             translation_key="power_out_of_range",
             translation_placeholders={
-                "requested": power,
-                "min": min_power,
-                "max": max_power,
+                "requested": str(power),
+                "min": str(min_power),
+                "max": str(max_power),
             },
         )
 

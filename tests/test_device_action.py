@@ -214,10 +214,10 @@ async def test_device_action_power_out_of_range_model_limit(hass, mock_config_en
         await async_call_action_from_config(hass, config, {}, None)
 
 
-async def test_device_action_charge_ignores_socket_limit_default(
+async def test_device_action_charge_enforces_socket_limit_default(
     hass, mock_config_entry
 ):
-    """Test charge action allows power above 800 W when socket limit is on by default."""
+    """Test charge action enforces socket limit when it's on by default (Venus E)."""
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
         mock_config_entry,
@@ -226,7 +226,7 @@ async def test_device_action_charge_ignores_socket_limit_default(
             "device_type": "Venus E",
         },
         options={
-            CONF_ACTION_CHARGE_POWER: -2000,
+            CONF_ACTION_CHARGE_POWER: -2000,  # Above 800W socket limit
         },
     )
 
@@ -245,15 +245,15 @@ async def test_device_action_charge_ignores_socket_limit_default(
         CONF_TYPE: ACTION_CHARGE,
     }
 
-    await async_call_action_from_config(hass, config, {}, None)
-    client.pause_polling.assert_called()
-    client.resume_polling.assert_called()
+    from homeassistant.components.device_automation import InvalidDeviceAutomationConfig
+    with pytest.raises(InvalidDeviceAutomationConfig, match="Requested power"):
+        await async_call_action_from_config(hass, config, {}, None)
 
 
-async def test_device_action_charge_ignores_socket_limit_explicit_true(
+async def test_device_action_charge_enforces_socket_limit_explicit_true(
     hass, mock_config_entry
 ):
-    """Test charge action allows power above 800 W when socket limit is explicitly enabled."""
+    """Test charge action enforces socket limit when explicitly enabled."""
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
         mock_config_entry,
@@ -262,8 +262,45 @@ async def test_device_action_charge_ignores_socket_limit_explicit_true(
             "device_type": "Venus E",
         },
         options={
-            CONF_ACTION_CHARGE_POWER: -2000,
+            CONF_ACTION_CHARGE_POWER: -2000,  # Above 800W socket limit
             CONF_SOCKET_LIMIT: True,
+        },
+    )
+
+    client = _mock_client()
+    with _patch_all(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_IDENTIFIER)})
+    assert device
+
+    config = {
+        CONF_DEVICE_ID: device.id,
+        CONF_DOMAIN: DOMAIN,
+        CONF_TYPE: ACTION_CHARGE,
+    }
+
+    from homeassistant.components.device_automation import InvalidDeviceAutomationConfig
+    with pytest.raises(InvalidDeviceAutomationConfig, match="Requested power"):
+        await async_call_action_from_config(hass, config, {}, None)
+
+
+async def test_device_action_charge_allows_high_power_without_socket_limit(
+    hass, mock_config_entry
+):
+    """Test charge action allows high power when socket limit is disabled."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            "device_type": "Venus E",
+        },
+        options={
+            CONF_ACTION_CHARGE_POWER: -2000,  # Above 800W but allowed without socket limit
+            CONF_SOCKET_LIMIT: False,
         },
     )
 
