@@ -118,7 +118,9 @@ Polling is **tiered** to reduce device load:
 | Medium | 60s | `PV.GetStatus` (solar data, Venus A/D only) |
 | Slow | 300s | `Wifi.GetStatus`, `Bat.GetStatus` (diagnostics) |
 
-Configurable via options flow. The IP-change scanner runs separately (60s interval).
+**Request delay**: 5 seconds between API calls during a polling cycle.
+
+Configurable via options flow. The IP-change scanner runs periodically (10 min backup interval), but uses **event-driven triggers** for fast detection: when the coordinator hits its failure threshold, it triggers an immediate scan (debounced to 30s minimum).
 
 ## Services
 

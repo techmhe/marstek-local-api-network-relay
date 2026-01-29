@@ -30,9 +30,31 @@ Polling is **tiered** to reduce device load (configurable via options flow):
 | Medium | 60s | `PV.GetStatus` (solar data, Venus A/D only) |
 | Slow | 300s | `Wifi.GetStatus`, `Bat.GetStatus` (diagnostics) |
 
-The IP-change scanner runs separately (`scanner.py`, 60s interval).
+**Request delay**: 5 seconds between API calls during a polling cycle (device stability).
+
+The IP-change scanner runs separately (`scanner.py`, 10 min interval as backup).
 
 Avoid shortening intervals without validating device/network stability. The device can be sensitive to request bursts.
+
+## Event-Driven Scanner Pattern
+
+The scanner uses an **event-driven approach** for IP change detection:
+
+1. **Periodic backup** (10 min): Scanner runs discovery every 10 minutes
+2. **Event-driven trigger**: When coordinator hits failure threshold, it calls `MarstekScanner.async_request_scan()` to trigger immediate discovery
+3. **Debounce**: Minimum 30 seconds between event-triggered scans
+
+This pattern avoids aggressive polling while still detecting IP changes quickly (~30s after connection failure).
+
+```python
+# In coordinator.py - on failure threshold:
+if self.consecutive_failures >= failure_threshold:
+    scanner = MarstekScanner.async_get(self.hass)
+    scanner.async_request_scan()  # Immediate scan, debounced
+    raise UpdateFailed(...)
+```
+
+**Best practice**: Prefer event-driven triggers over shortening scan intervals.
 
 ## Config / Options / Reauth
 
