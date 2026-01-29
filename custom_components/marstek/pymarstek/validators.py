@@ -12,8 +12,6 @@ import re
 from dataclasses import dataclass
 from typing import Any, Final
 
-_LOGGER = logging.getLogger(__name__)
-
 from .const import (
     CMD_BATTERY_STATUS,
     CMD_DISCOVER,
@@ -24,6 +22,8 @@ from .const import (
     CMD_PV_GET_STATUS,
     CMD_WIFI_STATUS,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 # Validation limits - keep in sync with device capabilities
 MAX_POWER_VALUE: Final = 5000  # 5kW max (matches device specs)

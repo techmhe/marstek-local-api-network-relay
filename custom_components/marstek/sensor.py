@@ -30,7 +30,6 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import MarstekConfigEntry
-from .const import DOMAIN
 from .coordinator import MarstekDataUpdateCoordinator
 from .device_info import build_device_info, get_device_identifier
 

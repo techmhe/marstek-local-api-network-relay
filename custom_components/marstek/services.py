@@ -32,7 +32,6 @@ from .const import (
     DEFAULT_UDP_PORT,
     DOMAIN,
     WEEKDAY_MAP,
-    WEEKDAYS_ALL,
     device_default_socket_limit,
     get_device_power_limits,
 )
