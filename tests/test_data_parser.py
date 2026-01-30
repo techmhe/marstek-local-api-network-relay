@@ -249,7 +249,9 @@ class TestMergeDeviceStatus:
         es_status_data = {
             "battery_soc": 55,
             "battery_power": -250,
-            "battery_status": "discharging",
+            "battery_status": "charging",
+            "pv_power": 400,  # Non-zero pv_power prevents recalculation
+            "ongrid_power": 150,
         }
         pv_status_data = {
             "pv1_power": 300,
@@ -284,7 +286,7 @@ class TestMergeDeviceStatus:
         assert result["device_mode"] == "auto"
         assert result["battery_soc"] == 55
         assert result["battery_power"] == -250
-        assert result["battery_status"] == "discharging"
+        assert result["battery_status"] == "charging"
         assert result["pv1_power"] == 300
         assert result["wifi_rssi"] == -58
         assert result["ct_connected"] is True
@@ -428,6 +430,114 @@ class TestMergeDeviceStatus:
         assert result["battery_soc"] == 55
         assert result["battery_power"] == 0
         assert result["ct_connected"] is False
+
+    def test_battery_power_recalculated_from_pv_channels(self):
+        """Test battery power is recalculated when ES.GetStatus pv_power is 0.
+        
+        Venus A devices report pv_power=0 in ES.GetStatus but individual 
+        channels from PV.GetStatus have correct values. The merge function
+        should recalculate battery power using PV channels.
+        
+        Example from issue #3/#5:
+        - pv1=41.5W, pv2=52W, pv3=58W, pv4=33W (total 184.5W)
+        - ES.GetStatus returns pv_power=0 (incorrect)
+        - ongrid_power=169W (exporting to grid)
+        - Battery should be: 184.5 - 169 = 15.5W charging (API convention)
+        - HA: -15.5W (negative = charging)
+        """
+        pv_status_data = {
+            "pv1_power": 41.5,
+            "pv2_power": 52.0,
+            "pv3_power": 58.0,
+            "pv4_power": 33.0,
+        }
+        es_status_data = {
+            "battery_soc": 27,
+            "pv_power": 0,  # ES.GetStatus returns incorrect 0
+            "ongrid_power": 169,  # Exporting to grid
+            "battery_power": 169,  # Wrong calculation: -(0 - 169) = 169
+            "battery_status": "discharging",  # Wrong!
+        }
+        
+        result = merge_device_status(
+            es_status_data=es_status_data,
+            pv_status_data=pv_status_data,
+        )
+        
+        # Total PV: 41.5 + 52 + 58 + 33 = 184.5W
+        # Battery: -(184.5 - 169) = -15.5W (HA: negative = charging)
+        assert result["battery_power"] == -15.5
+        assert result["battery_status"] == "charging"
+
+    def test_battery_power_not_recalculated_when_pv_power_correct(self):
+        """Test battery power is NOT recalculated when ES.GetStatus pv_power is non-zero."""
+        pv_status_data = {
+            "pv1_power": 100.0,
+            "pv2_power": 84.5,
+        }
+        es_status_data = {
+            "battery_soc": 55,
+            "pv_power": 184.5,  # ES.GetStatus returns correct value
+            "ongrid_power": 100,
+            "battery_power": -84.5,  # Correct: -(184.5 - 100) = -84.5
+            "battery_status": "charging",
+        }
+        
+        result = merge_device_status(
+            es_status_data=es_status_data,
+            pv_status_data=pv_status_data,
+        )
+        
+        # Should use the original ES.GetStatus value (not recalculated)
+        assert result["battery_power"] == -84.5
+        assert result["battery_status"] == "charging"
+
+    def test_battery_power_not_recalculated_when_no_pv_channels(self):
+        """Test battery power is NOT recalculated when no PV channel data."""
+        es_status_data = {
+            "battery_soc": 55,
+            "pv_power": 0,
+            "ongrid_power": 500,
+            "battery_power": 500,  # -(0 - 500) = 500
+            "battery_status": "discharging",
+        }
+        
+        result = merge_device_status(
+            es_status_data=es_status_data,
+            pv_status_data=None,  # No PV data available
+        )
+        
+        # Should use original value (no recalculation without PV channels)
+        assert result["battery_power"] == 500
+        assert result["battery_status"] == "discharging"
+
+    def test_battery_power_recalculated_discharging(self):
+        """Test battery power recalculation when discharging with PV.
+        
+        Example: PV generating 50W, exporting 200W to grid
+        -> Battery discharging: 50 - 200 = -150 (API convention: discharging)
+        -> HA: +150 (positive = discharging)
+        """
+        pv_status_data = {
+            "pv1_power": 50.0,
+        }
+        es_status_data = {
+            "battery_soc": 80,
+            "pv_power": 0,  # Wrong
+            "ongrid_power": 200,  # Exporting more than PV produces
+            "battery_power": 200,  # Wrong: -(0 - 200) = 200
+            "battery_status": "discharging",
+        }
+        
+        result = merge_device_status(
+            es_status_data=es_status_data,
+            pv_status_data=pv_status_data,
+        )
+        
+        # Total PV: 50W
+        # Battery: -(50 - 200) = -(-150) = 150W (HA: positive = discharging)
+        assert result["battery_power"] == 150
+        assert result["battery_status"] == "discharging"
 
 
 class TestParseEsModeResponse:

@@ -55,6 +55,31 @@ def _exists_key_with_value(key: str, data: dict[str, Any]) -> bool:
     return key in data and data.get(key) is not None
 
 
+def _calculate_total_pv_power(data: dict[str, Any]) -> StateType:
+    """Calculate total PV power by summing all PV channel powers.
+
+    This provides a reliable total when ES.GetStatus returns incorrect pv_power.
+    """
+    total: float = 0.0
+    has_any_channel = False
+    for channel in range(1, 5):
+        power = data.get(f"pv{channel}_power")
+        if power is not None:
+            has_any_channel = True
+            try:
+                total += float(power)
+            except (TypeError, ValueError):
+                pass
+    return total if has_any_channel else None
+
+
+def _has_any_pv_channel(data: dict[str, Any]) -> bool:
+    """Check if any PV channel data exists."""
+    return any(
+        data.get(f"pv{channel}_power") is not None for channel in range(1, 5)
+    )
+
+
 SENSORS: tuple[MarstekSensorEntityDescription, ...] = (
     MarstekSensorEntityDescription(
         key="battery_soc",
@@ -112,6 +137,18 @@ SENSORS: tuple[MarstekSensorEntityDescription, ...] = (
             _value_from_data("pv_power", coordinator.data or {})
         ),
         exists_fn=lambda data: _exists_key_with_value("pv_power", data),
+    ),
+    MarstekSensorEntityDescription(
+        key="total_pv_power",
+        translation_key="total_pv_power",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=lambda coordinator, _info, _entry: (
+            _calculate_total_pv_power(coordinator.data or {})
+        ),
+        exists_fn=_has_any_pv_channel,
     ),
     MarstekSensorEntityDescription(
         key="bat_cap",

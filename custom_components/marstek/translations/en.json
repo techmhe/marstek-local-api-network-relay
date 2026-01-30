@@ -129,6 +129,9 @@
       "pv_power": {
         "name": "PV power"
       },
+      "total_pv_power": {
+        "name": "Total PV power"
+      },
       "battery_total_capacity": {
         "name": "Battery total capacity"
       },

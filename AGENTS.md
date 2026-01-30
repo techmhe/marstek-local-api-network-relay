@@ -246,3 +246,172 @@ This repository enforces **strict typing** via `mypy --strict`. When adding or m
 - Use `tools/query_device.py` to query real devices for debugging.
 - When troubleshooting discovery: ensure devices and HA are on the same LAN segment and UDP port is reachable.
 - Devcontainer supports multiple mock devices (see `.devcontainer/docker-compose.yml`).
+
+## Development Tools
+
+The `tools/` directory contains utilities for testing, debugging, and development. **Use these tools proactively** when working on device communication, debugging issues, or improving mock data.
+
+### `tools/query_device.py` — Query a device directly
+
+Quick diagnostic tool to verify a device is responding on the network.
+
+```bash
+python3 tools/query_device.py <IP_ADDRESS> [--port 30000] [--timeout 5.0]
+```
+
+**Use when:**
+- Verifying a device is reachable before debugging integration issues
+- Checking if OPEN API is enabled on a device
+- Quick connectivity test without starting Home Assistant
+
+**Example:**
+```bash
+python3 tools/query_device.py 192.168.0.152
+# Output: Device info including version, MAC addresses, etc.
+```
+
+### `tools/debug_udp_discovery.py` — Debug broadcast discovery
+
+Comprehensive UDP discovery debug tool that tests broadcast discovery and diagnoses issues like echoed requests, missing responses, and network configuration problems.
+
+```bash
+python3 tools/debug_udp_discovery.py [--timeout 10] [--verbose]
+```
+
+**Use when:**
+- Discovery in config flow isn't finding devices
+- Investigating echo/duplicate response issues
+- Diagnosing network/VLAN configuration problems
+- Verifying broadcast addresses are correct
+
+**Features:**
+- Lists all broadcast addresses being used
+- Filters echo responses from real device responses
+- Provides detailed troubleshooting suggestions
+- Shows raw responses in verbose mode
+
+**Example:**
+```bash
+python3 tools/debug_udp_discovery.py --verbose --timeout 15
+```
+
+### `tools/capture_device.py` — Capture real device responses
+
+Captures responses from all API methods on a real device and saves them to JSON files. Optionally updates the mock device with realistic data.
+
+```bash
+python3 tools/capture_device.py <IP_ADDRESS> [--port 30000] [--output FILE] [--update-mock]
+```
+
+**Use when:**
+- Adding support for a new device model (Venus A, Venus D, etc.)
+- Updating mock device with realistic response data
+- Documenting real device behavior for test fixtures
+- Debugging discrepancies between real and mock responses
+
+**Features:**
+- Queries all supported API methods with proper delays (10s between requests)
+- Saves raw JSON responses for reference
+- Generates Python config for mock device
+- Can auto-update `mock_device/` with `--update-mock`
+
+**Example:**
+```bash
+# Capture data and save to file
+python3 tools/capture_device.py 192.168.0.152 -o captured_venus_e.json
+
+# Capture and update mock device
+python3 tools/capture_device.py 192.168.0.152 --update-mock
+```
+
+**Output files:**
+- `captured_device_<ip>.json` — Raw API responses
+- `captured_device_<ip>.py` — Python config for mock device
+
+### `tools/verify_battery_logic.py` — Verify battery power calculations
+
+Queries `ES.GetStatus` from a real device and verifies the battery power calculation logic matches expected behavior.
+
+```bash
+python3 tools/verify_battery_logic.py [IP_ADDRESS]
+```
+
+**Use when:**
+- Debugging battery charging/discharging status issues
+- Verifying power sign conventions (positive = charging/discharging)
+- Validating `bat_power` fallback calculation (`pv_power - ongrid_power`)
+- Understanding how different modes affect power flow
+
+**Features:**
+- Shows raw API response
+- Applies integration's power calculation logic
+- Performs sanity checks (grid import/export vs. battery status)
+- Reports ✅/❌ for logic correctness
+
+**Example:**
+```bash
+python3 tools/verify_battery_logic.py 192.168.0.152
+# Shows: pv_power, ongrid_power, bat_power, calculated battery_status
+```
+
+### `tools/mock_device/` — Mock Marstek device for testing
+
+A full mock Marstek device that simulates realistic battery behavior without hardware. Essential for development and testing.
+
+```bash
+# Run as module (recommended)
+cd tools && python -m mock_device [OPTIONS]
+
+# Or standalone
+python3 tools/mock_device/mock_marstek.py [OPTIONS]
+```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--port` | 30000 | UDP port |
+| `--ip` | auto | Override reported IP address |
+| `--device` | "VenusE 3.0" | Device type string |
+| `--ble-mac` | random | BLE MAC address (unique ID) |
+| `--wifi-mac` | random | WiFi MAC address |
+| `--soc` | 50 | Initial battery SOC percentage |
+| `--no-simulate` | false | Disable dynamic simulation |
+
+**Use when:**
+- Running tests (pytest uses mock device fixtures)
+- Developing without hardware access
+- Testing mode transitions and schedule behavior
+- Simulating edge cases (low SOC, full battery, etc.)
+
+**Features:**
+- **Dynamic battery simulation**: SOC changes based on power flow
+- **Power fluctuations**: Realistic ±5% variations
+- **All modes**: Auto, AI, Manual, Passive with proper behavior
+- **Passive timer**: Auto-expiration after configured duration
+- **Manual schedules**: Day/time/power slot configuration
+- **Household simulation**: Time-of-day consumption patterns
+
+**Example:**
+```bash
+# Start with 30% battery for low-SOC testing
+python -m mock_device --soc 30
+
+# Start multiple devices with unique MACs
+python -m mock_device --ble-mac 02deadbeef01 --soc 50 &
+python -m mock_device --port 30001 --ble-mac 02deadbeef02 --soc 75 &
+```
+
+**In devcontainer:** Three mock devices run automatically at `172.28.0.20-22`.
+
+### Tool selection guide
+
+| Scenario | Tool to use |
+|----------|-------------|
+| "Device not found in config flow" | `debug_udp_discovery.py --verbose` |
+| "Quick check if device responds" | `query_device.py <IP>` |
+| "Battery status shows wrong state" | `verify_battery_logic.py <IP>` |
+| "Adding support for new device model" | `capture_device.py <IP> --update-mock` |
+| "Running tests without hardware" | `mock_device/` (automatic in pytest) |
+| "Need realistic mock data" | `capture_device.py <IP> -o data.json` |
+| "Testing low battery behavior" | `mock_device/ --soc 5` |
+| "Debugging mode transitions" | `mock_device/` + watch console output |

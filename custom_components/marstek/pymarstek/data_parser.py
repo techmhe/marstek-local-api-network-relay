@@ -264,6 +264,9 @@ def merge_device_status(
     6. pv_status_data (PV channel data)
     7. previous_status (fallback for any values not provided by current data)
     
+    Note: Battery power is recalculated using PV channel data when ES.GetStatus
+    returns incorrect pv_power (common on Venus A devices).
+    
     Args:
         es_mode_data: Parsed ES.GetMode data (device_mode, ongrid_power)
         es_status_data: Parsed ES.GetStatus data (battery_power, battery_status)
@@ -339,6 +342,32 @@ def merge_device_status(
     # ES.GetStatus has highest priority for battery data
     if es_status_data:
         status.update(es_status_data)
+    
+    # Recalculate battery power using PV channel data when ES.GetStatus returns
+    # incorrect pv_power (Venus A devices report pv_power=0 in ES.GetStatus but
+    # individual channels from PV.GetStatus are correct)
+    if pv_status_data and es_status_data:
+        es_pv_power = es_status_data.get("pv_power", 0)
+        # Calculate total from individual PV channels
+        total_pv_from_channels = sum(
+            pv_status_data.get(f"pv{ch}_power", 0) or 0
+            for ch in range(1, 5)
+        )
+        # If ES.GetStatus pv_power is 0 but channels have real power, recalculate
+        if es_pv_power == 0 and total_pv_from_channels > 0:
+            ongrid_power = es_status_data.get("ongrid_power", 0) or 0
+            # Recalculate: bat_power = pv_power - ongrid_power (API convention)
+            # Then negate for HA convention (positive = discharging)
+            raw_bat_power = total_pv_from_channels - ongrid_power
+            battery_power = -raw_bat_power
+            status["battery_power"] = battery_power
+            # Update battery status based on recalculated power
+            if battery_power > 0:
+                status["battery_status"] = "discharging"
+            elif battery_power < 0:
+                status["battery_status"] = "charging"
+            else:
+                status["battery_status"] = "idle"
     
     if device_ip:
         status["device_ip"] = device_ip
