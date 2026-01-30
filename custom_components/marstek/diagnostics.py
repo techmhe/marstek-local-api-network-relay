@@ -20,13 +20,16 @@ from .const import (
     CONF_POLL_INTERVAL_SLOW,
     CONF_REQUEST_DELAY,
     CONF_REQUEST_TIMEOUT,
+    DATA_UDP_CLIENT,
     DEFAULT_FAILURE_THRESHOLD,
     DEFAULT_POLL_INTERVAL_FAST,
     DEFAULT_POLL_INTERVAL_MEDIUM,
     DEFAULT_POLL_INTERVAL_SLOW,
     DEFAULT_REQUEST_DELAY,
     DEFAULT_REQUEST_TIMEOUT,
+    DOMAIN,
 )
+from .pymarstek.udp import MarstekUDPClient
 
 TO_REDACT = {
     CONF_HOST,
@@ -93,6 +96,28 @@ def _format_datetime(dt: datetime | None) -> str | None:
     return dt.isoformat()
 
 
+def _format_timestamp(timestamp: float | None) -> str | None:
+    """Format a UNIX timestamp as ISO string with timezone."""
+    if timestamp is None:
+        return None
+    return dt_util.utc_from_timestamp(timestamp).isoformat()
+
+
+def _summarize_command_stats(stats: dict[str, Any]) -> dict[str, Any]:
+    """Add derived fields to a command stats bucket."""
+    total_attempts = int(stats.get("total_attempts", 0) or 0)
+    total_success = int(stats.get("total_success", 0) or 0)
+    total_timeouts = int(stats.get("total_timeouts", 0) or 0)
+    success_rate = (total_success / total_attempts) if total_attempts else None
+    timeout_rate = (total_timeouts / total_attempts) if total_attempts else None
+
+    summary = dict(stats)
+    summary["success_rate"] = success_rate
+    summary["timeout_rate"] = timeout_rate
+    summary["last_updated"] = _format_timestamp(stats.get("last_updated"))
+    return summary
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: MarstekConfigEntry
 ) -> dict[str, Any]:
@@ -140,6 +165,18 @@ async def async_get_config_entry_diagnostics(
         ),
     }
 
+    # Command diagnostics from shared UDP client (if available)
+    # Only include device-specific stats for this entry's device
+    udp_client = hass.data.get(DOMAIN, {}).get(DATA_UDP_CLIENT)
+    device_command_stats: dict[str, dict[str, Any]] = {}
+    if isinstance(udp_client, MarstekUDPClient):
+        device_command_stats = {
+            method: _summarize_command_stats(stats)
+            for method, stats in udp_client.get_command_stats_for_ip(
+                coordinator.device_ip
+            ).items()
+        }
+
     return {
         "entry": {
             "title": entry.title,
@@ -157,6 +194,7 @@ async def async_get_config_entry_diagnostics(
             "consecutive_failures": consecutive_failures,
             "diagnostics_generated_at": _format_datetime(now),
         },
+        "command_stats": device_command_stats,
         "coordinator_data": async_redact_data(
             coordinator.data if coordinator.data else {}, TO_REDACT
         ),

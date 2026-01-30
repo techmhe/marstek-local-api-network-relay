@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.marstek import MarstekConfigEntry
 from custom_components.marstek.diagnostics import async_get_config_entry_diagnostics
+from custom_components.marstek.const import DATA_UDP_CLIENT, DOMAIN
 
 
 @pytest.fixture
@@ -208,6 +209,61 @@ async def test_diagnostics_with_empty_coordinator_data(
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
     assert result["coordinator_data"] == {}
+
+
+async def test_diagnostics_includes_command_stats(
+    hass: HomeAssistant,
+    mock_config_entry: MagicMock,
+    mock_runtime_data: MagicMock,
+) -> None:
+    """Test diagnostics include command stats when UDP client exposes them."""
+    mock_runtime_data.coordinator.device_ip = "192.168.1.100"
+    mock_config_entry.runtime_data = mock_runtime_data
+
+    udp_client = MagicMock()
+    udp_client.get_command_stats.return_value = {
+        "ES.GetStatus": {
+            "total_attempts": 4,
+            "total_success": 3,
+            "total_timeouts": 1,
+            "total_failures": 0,
+            "last_success": True,
+            "last_latency": 0.5,
+            "last_timeout": False,
+            "last_error": None,
+            "last_updated": 1738170000.0,
+        }
+    }
+    udp_client.get_command_stats_for_ip.return_value = {
+        "ES.GetStatus": {
+            "total_attempts": 2,
+            "total_success": 1,
+            "total_timeouts": 1,
+            "total_failures": 0,
+            "last_success": False,
+            "last_latency": None,
+            "last_timeout": True,
+            "last_error": "timeout",
+            "last_updated": 1738170001.0,
+        }
+    }
+
+    hass.data.setdefault(DOMAIN, {})[DATA_UDP_CLIENT] = udp_client
+
+    result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    assert "command_stats" in result
+    assert "overall" in result["command_stats"]
+    assert "device" in result["command_stats"]
+    overall = result["command_stats"]["overall"]["ES.GetStatus"]
+    device = result["command_stats"]["device"]["ES.GetStatus"]
+
+    assert overall["total_attempts"] == 4
+    assert overall["success_rate"] == 0.75
+    assert overall["timeout_rate"] == 0.25
+    assert device["total_attempts"] == 2
+    assert device["success_rate"] == 0.5
+    assert device["timeout_rate"] == 0.5
 
 
 async def test_diagnostics_without_last_update_time(

@@ -12,6 +12,7 @@ import ipaddress
 import json
 import logging
 import socket
+import time
 from typing import Any
 
 try:
@@ -44,6 +45,21 @@ _LOGGER = logging.getLogger(__name__)
 
 # Rate limiting - minimum interval between requests to same device
 MIN_REQUEST_INTERVAL: float = 0.3  # 300ms minimum between requests to same IP
+
+
+def _new_command_stats() -> dict[str, Any]:
+    """Create a new command stats bucket."""
+    return {
+        "total_attempts": 0,
+        "total_success": 0,
+        "total_timeouts": 0,
+        "total_failures": 0,
+        "last_success": None,
+        "last_latency": None,
+        "last_timeout": None,
+        "last_error": None,
+        "last_updated": None,
+    }
 
 
 class MarstekUDPClient:
@@ -85,6 +101,62 @@ class MarstekUDPClient:
         self._response_cache_max_size: int = 50
         self._response_cache_max_age: float = 30.0  # 30 seconds
 
+        # Command diagnostics (per method, optional per device IP)
+        self._command_stats: dict[str, dict[str, Any]] = {}
+        self._command_stats_by_ip: dict[str, dict[str, dict[str, Any]]] = {}
+
+    def _get_command_stats_bucket(
+        self, method: str, *, device_ip: str | None = None
+    ) -> dict[str, Any]:
+        """Get or create a command stats bucket."""
+        if device_ip is None:
+            stats = self._command_stats.setdefault(method, _new_command_stats())
+            return stats
+
+        per_ip = self._command_stats_by_ip.setdefault(device_ip, {})
+        stats = per_ip.setdefault(method, _new_command_stats())
+        return stats
+
+    def _record_command_result(
+        self,
+        method: str,
+        *,
+        device_ip: str | None,
+        success: bool,
+        timeout: bool,
+        latency: float | None,
+        error: str | None,
+    ) -> None:
+        """Record command outcome for diagnostics."""
+        for bucket in (
+            self._get_command_stats_bucket(method, device_ip=device_ip),
+            self._get_command_stats_bucket(method, device_ip=None),
+        ):
+            bucket["total_attempts"] += 1
+            if success:
+                bucket["total_success"] += 1
+            elif timeout:
+                bucket["total_timeouts"] += 1
+            else:
+                bucket["total_failures"] += 1
+
+            bucket["last_success"] = success
+            bucket["last_latency"] = latency
+            bucket["last_timeout"] = timeout
+            bucket["last_error"] = error
+            bucket["last_updated"] = time.time()
+
+    def get_command_stats(self) -> dict[str, dict[str, Any]]:
+        """Return snapshot of command stats for all methods."""
+        return {method: dict(stats) for method, stats in self._command_stats.items()}
+
+    def get_command_stats_for_ip(self, device_ip: str) -> dict[str, dict[str, Any]]:
+        """Return snapshot of command stats for a specific device IP."""
+        return {
+            method: dict(stats)
+            for method, stats in self._command_stats_by_ip.get(device_ip, {}).items()
+        }
+
     async def async_setup(self) -> None:
         """Prepare the UDP socket."""
         if self._socket is not None:
@@ -117,6 +189,8 @@ class MarstekUDPClient:
         self._last_request_time.clear()
         self._rate_limit_locks.clear()
         self._polling_paused.clear()
+        self._command_stats.clear()
+        self._command_stats_by_ip.clear()
 
     def _get_broadcast_addresses(self) -> list[str]:
         addresses = {"255.255.255.255"}
@@ -184,6 +258,7 @@ class MarstekUDPClient:
             for ip in stale_ips:
                 self._last_request_time.pop(ip, None)
                 self._rate_limit_locks.pop(ip, None)
+                self._command_stats_by_ip.pop(ip, None)
             
             if stale_ips:
                 _LOGGER.debug("Cleaned up rate limit tracking for %d stale IPs", len(stale_ips))
@@ -325,10 +400,12 @@ class MarstekUDPClient:
                 )
                 raise
             request_id = command["id"]
+            method_name = str(command.get("method", "unknown"))
         else:
             try:
                 message_obj = json.loads(message)
                 request_id = message_obj["id"]
+                method_name = str(message_obj.get("method", "unknown"))
             except (json.JSONDecodeError, KeyError) as exc:
                 raise ValueError("Invalid message: missing id") from exc
 
@@ -340,13 +417,42 @@ class MarstekUDPClient:
                 loop = self._loop or asyncio.get_running_loop()
                 self._listen_task = loop.create_task(self._listen_for_responses())
 
+            request_started = time.time()
             await self._send_udp_message(message, target_ip, target_port)
             _LOGGER.debug("Send request to %s:%d: %s", target_ip, target_port, message)
-            return await asyncio.wait_for(future, timeout=timeout)
+            response = await asyncio.wait_for(future, timeout=timeout)
+            latency = time.time() - request_started
+            self._record_command_result(
+                method_name,
+                device_ip=target_ip,
+                success=True,
+                timeout=False,
+                latency=latency,
+                error=None,
+            )
+            return response
         except TimeoutError as err:
             if not quiet_on_timeout:
                 _LOGGER.warning("Request timeout: %s:%d", target_ip, target_port)
+            self._record_command_result(
+                method_name,
+                device_ip=target_ip,
+                success=False,
+                timeout=True,
+                latency=None,
+                error="timeout",
+            )
             raise TimeoutError(f"Request timeout to {target_ip}:{target_port}") from err
+        except (OSError, ValueError) as err:
+            self._record_command_result(
+                method_name,
+                device_ip=target_ip,
+                success=False,
+                timeout=False,
+                latency=None,
+                error=str(err),
+            )
+            raise
         finally:
             self._pending_requests.pop(request_id, None)
 

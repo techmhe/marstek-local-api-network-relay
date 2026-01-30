@@ -263,6 +263,69 @@ class TestSendRequest:
                 message, "192.168.1.100", 30000, timeout=0.1, validate=False
             )
 
+
+class TestCommandStats:
+    """Tests for command diagnostics tracking."""
+
+    async def test_command_stats_success(self) -> None:
+        """Test command stats recorded on success."""
+        client = MarstekUDPClient()
+        client._socket = MagicMock()
+        mock_loop = MagicMock()
+        mock_loop.time.return_value = 1000.0
+        mock_loop.create_task = MagicMock(return_value=MagicMock())
+        client._loop = mock_loop
+
+        message = json.dumps(
+            {"id": 1, "method": "ES.GetStatus", "params": {"id": 0}}
+        )
+
+        with patch.object(client, "_send_udp_message", AsyncMock()):
+            with patch("asyncio.wait_for", AsyncMock(return_value={"id": 1, "result": {}})):
+                await client.send_request(
+                    message,
+                    "192.168.1.100",
+                    30000,
+                    timeout=0.1,
+                    validate=False,
+                )
+
+        stats = client.get_command_stats_for_ip("192.168.1.100")
+        assert stats["ES.GetStatus"]["total_attempts"] == 1
+        assert stats["ES.GetStatus"]["total_success"] == 1
+        assert stats["ES.GetStatus"]["total_timeouts"] == 0
+        assert stats["ES.GetStatus"]["last_success"] is True
+
+    async def test_command_stats_timeout(self) -> None:
+        """Test command stats recorded on timeout."""
+        client = MarstekUDPClient()
+        client._socket = MagicMock()
+        mock_loop = MagicMock()
+        mock_loop.time.return_value = 1000.0
+        mock_loop.create_task = MagicMock(return_value=MagicMock())
+        client._loop = mock_loop
+
+        message = json.dumps(
+            {"id": 1, "method": "ES.GetStatus", "params": {"id": 0}}
+        )
+
+        with patch.object(client, "_send_udp_message", AsyncMock()):
+            with patch("asyncio.wait_for", AsyncMock(side_effect=TimeoutError)):
+                with pytest.raises(TimeoutError):
+                    await client.send_request(
+                        message,
+                        "192.168.1.100",
+                        30000,
+                        timeout=0.1,
+                        validate=False,
+                    )
+
+        stats = client.get_command_stats_for_ip("192.168.1.100")
+        assert stats["ES.GetStatus"]["total_attempts"] == 1
+        assert stats["ES.GetStatus"]["total_success"] == 0
+        assert stats["ES.GetStatus"]["total_timeouts"] == 1
+        assert stats["ES.GetStatus"]["last_timeout"] is True
+
     async def test_timeout_with_quiet_option(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test that quiet_on_timeout suppresses warnings."""
         client = MarstekUDPClient()
