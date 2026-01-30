@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -14,23 +14,7 @@ from custom_components.marstek.const import CONF_POLL_INTERVAL_SLOW, DOMAIN
 from custom_components.marstek.coordinator import MarstekDataUpdateCoordinator
 
 
-@pytest.fixture
-def mock_udp_client():
-    """Create a mock UDP client."""
-    client = MagicMock()
-    client.is_polling_paused = MagicMock(return_value=False)
-    client.get_device_status = AsyncMock(
-        return_value={
-            "battery_soc": 55,
-            "battery_power": 100,
-            "device_mode": "auto",
-            "battery_status": "charging",
-            "pv1_power": 200,
-        }
-    )
-    return client
-
-
+@pytest.mark.asyncio
 async def test_coordinator_init(hass: HomeAssistant, mock_config_entry, mock_udp_client):
     """Test coordinator initialization."""
     mock_config_entry.add_to_hass(hass)
@@ -48,6 +32,7 @@ async def test_coordinator_init(hass: HomeAssistant, mock_config_entry, mock_udp
     assert coordinator.name == "Marstek 1.2.3.4"
 
 
+@pytest.mark.asyncio
 async def test_coordinator_device_ip_from_config_entry(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
@@ -65,6 +50,7 @@ async def test_coordinator_device_ip_from_config_entry(
     assert coordinator.device_ip == "1.2.3.4"
 
 
+@pytest.mark.asyncio
 async def test_coordinator_successful_update(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
@@ -81,11 +67,12 @@ async def test_coordinator_successful_update(
     data = await coordinator._async_update_data()
 
     assert data["battery_soc"] == 55
-    assert data["battery_power"] == 100
-    assert data["device_mode"] == "auto"
+    assert data["battery_power"] == -250
+    assert data["device_mode"] == "Auto"
     mock_udp_client.get_device_status.assert_called_once()
 
 
+@pytest.mark.asyncio
 async def test_coordinator_skips_wifi_status_when_disabled(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
@@ -117,6 +104,7 @@ async def test_coordinator_skips_wifi_status_when_disabled(
     assert kwargs["include_wifi"] is False
 
 
+@pytest.mark.asyncio
 async def test_coordinator_polling_paused_returns_cached_data(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
@@ -140,6 +128,7 @@ async def test_coordinator_polling_paused_returns_cached_data(
     mock_udp_client.get_device_status.assert_not_called()
 
 
+@pytest.mark.asyncio
 async def test_coordinator_polling_paused_returns_empty_dict_when_no_cache(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
@@ -162,6 +151,7 @@ async def test_coordinator_polling_paused_returns_empty_dict_when_no_cache(
     mock_udp_client.get_device_status.assert_not_called()
 
 
+@pytest.mark.asyncio
 async def test_coordinator_no_fresh_data_raises_update_failed(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
@@ -191,6 +181,7 @@ async def test_coordinator_no_fresh_data_raises_update_failed(
         await coordinator._async_update_data()
 
 
+@pytest.mark.asyncio
 async def test_coordinator_timeout_error_raises_update_failed(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
@@ -213,6 +204,7 @@ async def test_coordinator_timeout_error_raises_update_failed(
         await coordinator._async_update_data()
 
 
+@pytest.mark.asyncio
 async def test_coordinator_os_error_raises_update_failed(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
@@ -237,6 +229,7 @@ async def test_coordinator_os_error_raises_update_failed(
         await coordinator._async_update_data()
 
 
+@pytest.mark.asyncio
 async def test_coordinator_value_error_raises_update_failed(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):
@@ -259,6 +252,7 @@ async def test_coordinator_value_error_raises_update_failed(
         await coordinator._async_update_data()
 
 
+@pytest.mark.asyncio
 async def test_coordinator_failure_threshold_keeps_entities_available(
     hass: HomeAssistant, mock_config_entry, mock_udp_client
 ):

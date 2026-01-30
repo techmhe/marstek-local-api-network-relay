@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Generator
+from typing import TYPE_CHECKING, Any, Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,6 +12,9 @@ from pytest_homeassistant_custom_component.syrupy import HomeAssistantSnapshotEx
 from syrupy.assertion import SnapshotAssertion
 
 from custom_components.marstek.const import DOMAIN
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 @pytest.fixture(autouse=True)
@@ -61,8 +64,13 @@ def create_mock_client(
 
     Returns:
         Configured MagicMock simulating MarstekUDPClient.
+
+    Note:
+        Using spec=MarstekUDPClient would be ideal but the async methods
+        need AsyncMock which conflicts with create_autospec. MagicMock with
+        explicit method setup provides the same protection via explicit attrs.
     """
-    client = MagicMock()
+    client = MagicMock(name="MarstekUDPClient")
     client.async_setup = AsyncMock(side_effect=setup_error)
     client.async_cleanup = AsyncMock(return_value=None)
     client.is_polling_paused = MagicMock(return_value=False)
@@ -147,3 +155,46 @@ def patch_marstek_integration(
 def mock_udp_client() -> MagicMock:
     """Provide a mock UDP client for direct coordinator/scanner tests."""
     return create_mock_client()
+
+
+# ---------------------------------------------------------------------------
+# Reusable patch context managers for config flow tests
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def patch_discovery(
+    devices: list[dict[str, Any]], error: Exception | None = None
+) -> Iterator[None]:
+    """Patch discover_devices for config flow tests.
+
+    Args:
+        devices: List of device dicts to return from discovery.
+        error: Optional exception to raise instead of returning devices.
+
+    Yields:
+        None - context manager for use in tests.
+    """
+    mock_fn = AsyncMock(side_effect=error) if error else AsyncMock(return_value=devices)
+    with patch("custom_components.marstek.config_flow.discover_devices", mock_fn):
+        yield
+
+
+@contextmanager
+def patch_manual_connection(
+    device_info: dict[str, Any] | None = None, error: Exception | None = None
+) -> Iterator[None]:
+    """Patch get_device_info for manual connection validation tests.
+
+    Args:
+        device_info: Device info dict to return, or None for no device.
+        error: Optional exception to raise instead of returning device_info.
+
+    Yields:
+        None - context manager for use in tests.
+    """
+    mock_fn = (
+        AsyncMock(side_effect=error) if error else AsyncMock(return_value=device_info)
+    )
+    with patch("custom_components.marstek.config_flow.get_device_info", mock_fn):
+        yield
