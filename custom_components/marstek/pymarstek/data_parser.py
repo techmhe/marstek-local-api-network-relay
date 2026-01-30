@@ -284,7 +284,7 @@ def merge_device_status(
     """
     # Start with defaults (None ensures previous values are preserved on timeouts)
     # Note: PV keys are NOT included by default - only added when device supports PV
-    # Per API docs (Chapter 4): Only Venus D supports PV, not Venus C/E
+    # Venus A and Venus D support PV; Venus C/E do NOT
     status: dict[str, Any] = {
         "battery_soc": None,
         "battery_power": None,
@@ -323,7 +323,7 @@ def merge_device_status(
                 status[key] = value
     
     # Apply in order of priority (lowest to highest)
-    # PV data is ONLY included if pv_status_data is provided (Venus D devices only)
+    # PV data is ONLY included if pv_status_data is provided (Venus A/D devices only)
     if pv_status_data:
         status.update(pv_status_data)
     

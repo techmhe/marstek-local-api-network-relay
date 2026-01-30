@@ -91,7 +91,7 @@ cp -r /path/to/ha_marstek/custom_components/marstek custom_components/
 After setup, you can adjust polling and request behavior in **Device → Configure**:
 
 - **Fast polling interval** (default: 30s): ES.GetMode, ES.GetStatus, EM.GetStatus (real-time power)
-- **Medium polling interval** (default: 60s): PV.GetStatus (solar data, Venus D only)
+- **Medium polling interval** (default: 60s): PV.GetStatus (solar data, Venus A/D only)
 - **Slow polling interval** (default: 300s): Wifi.GetStatus, Bat.GetStatus (diagnostics)
 - **Request delay** (default: 10s): Delay between consecutive UDP requests
 - **Request timeout** (default: 10s): Per-request timeout before retry/fail

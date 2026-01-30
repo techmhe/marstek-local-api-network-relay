@@ -68,7 +68,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._initial_device_port = device_port
         
         # Check device capabilities based on device type
-        # Per API docs (Chapter 4): Only Venus D supports PV, not Venus C/E
+        # Venus A and Venus D support PV; Venus C/E do NOT
         device_type = config_entry.data.get("device_type", "")
         self._supports_pv = device_supports_pv(device_type)
         
@@ -217,7 +217,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         slow_interval = self._get_slow_interval()
         request_delay = self._get_request_delay()
         
-        # PV data - medium interval, but only if device supports PV (Venus D only)
+        # PV data - medium interval, but only if device supports PV (Venus A/D)
         include_pv = (
             self._supports_pv 
             and (current_time - self._last_pv_fetch) >= medium_interval
