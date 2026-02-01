@@ -25,6 +25,7 @@ Verified against `dcc32efe` (2026-01-28).
 - [Configuration](configuration.md)
 - [Options](options.md)
 - [Entities](entities.md)
+- [Energy Dashboard](energy_dashboard.md)
 - [Services & automations](services.md)
 - [Repairs](repairs.md)
 - [Troubleshooting](troubleshooting.md)

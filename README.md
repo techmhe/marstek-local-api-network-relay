@@ -112,6 +112,7 @@ Extended documentation (with screenshots) lives in `docs/`:
 - [Configuration](docs/configuration.md)
 - [Options](docs/options.md)
 - [Entities](docs/entities.md)
+- [Energy Dashboard](docs/energy_dashboard.md)
 - [Services](docs/services.md)
 - [Repairs](docs/repairs.md)
 - [Troubleshooting](docs/troubleshooting.md)
