@@ -38,24 +38,28 @@ template:
       - name: "Marstek total solar energy kwh"
         unique_id: marstek_total_pv_energy_kwh
         state: "{{ (states('sensor.total_pv_energy') | float(0)) / 1000 }}"
+        availability: "{{ is_number(states('sensor.total_pv_energy')) }}"
         unit_of_measurement: "kWh"
         device_class: energy
         state_class: total_increasing
       - name: "Marstek total grid input energy kwh"
         unique_id: marstek_total_grid_input_energy_kwh
         state: "{{ (states('sensor.total_grid_input_energy') | float(0)) / 1000 }}"
+        availability: "{{ is_number(states('sensor.total_grid_input_energy')) }}"
         unit_of_measurement: "kWh"
         device_class: energy
         state_class: total_increasing
       - name: "Marstek total grid output energy kwh"
         unique_id: marstek_total_grid_output_energy_kwh
         state: "{{ (states('sensor.total_grid_output_energy') | float(0)) / 1000 }}"
+        availability: "{{ is_number(states('sensor.total_grid_output_energy')) }}"
         unit_of_measurement: "kWh"
         device_class: energy
         state_class: total_increasing
       - name: "Marstek total load energy kwh"
         unique_id: marstek_total_load_energy_kwh
         state: "{{ (states('sensor.total_load_energy') | float(0)) / 1000 }}"
+        availability: "{{ is_number(states('sensor.total_load_energy')) }}"
         unit_of_measurement: "kWh"
         device_class: energy
         state_class: total_increasing
