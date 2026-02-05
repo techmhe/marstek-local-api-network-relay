@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from itertools import product
 import json
 import socket
 from typing import Any
@@ -11,7 +12,29 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.marstek.pymarstek.udp import MarstekUDPClient, MIN_REQUEST_INTERVAL
+from custom_components.marstek.pymarstek.data_parser import (
+    merge_device_status,
+    parse_bat_status_response,
+    parse_em_status_response,
+    parse_es_mode_response,
+    parse_es_status_response,
+    parse_pv_status_response,
+    parse_wifi_status_response,
+)
 from custom_components.marstek.pymarstek.validators import ValidationError
+
+
+_STATUS_COMBINATION_LABELS = (
+    "es_mode",
+    "es_status",
+    "em",
+    "pv",
+    "wifi",
+    "bat",
+)
+_STATUS_COMBINATIONS = list(
+    product([True, False], repeat=len(_STATUS_COMBINATION_LABELS))
+)
 
 
 @pytest.fixture
@@ -682,6 +705,191 @@ class TestGetDeviceStatus:
         
         # Should still have some data from successful calls
         assert result["has_fresh_data"]
+
+    @pytest.mark.parametrize(
+        "es_mode_ok, es_status_ok, em_ok, pv_ok, wifi_ok, bat_ok",
+        _STATUS_COMBINATIONS,
+        ids=[
+            "-".join(
+                f"{label}:{'ok' if flag else 'fail'}"
+                for label, flag in zip(_STATUS_COMBINATION_LABELS, combo)
+            )
+            for combo in _STATUS_COMBINATIONS
+        ],
+    )
+    async def test_all_status_combinations(
+        self,
+        es_mode_ok: bool,
+        es_status_ok: bool,
+        em_ok: bool,
+        pv_ok: bool,
+        wifi_ok: bool,
+        bat_ok: bool,
+    ) -> None:
+        """Test all success/failure combinations across status requests."""
+        client = MarstekUDPClient()
+        client._socket = MagicMock()
+        client._loop = MagicMock()
+        client._loop.time.return_value = 1000.0
+
+        previous_status = {
+            "battery_soc": 10,
+            "battery_power": 111,
+            "battery_status": "idle",
+            "ongrid_power": 5,
+            "offgrid_power": 6,
+            "device_mode": "manual",
+            "ct_state": 0,
+            "ct_connected": False,
+            "em_a_power": 1,
+            "em_b_power": 2,
+            "em_c_power": 3,
+            "em_total_power": 4,
+            "pv1_power": 9.0,
+            "pv1_voltage": 90.0,
+            "pv1_current": 0.9,
+            "pv1_state": 1,
+            "pv_power": 123.0,
+            "wifi_rssi": -80,
+            "wifi_ssid": "PrevNet",
+            "wifi_sta_ip": "1.1.1.1",
+            "wifi_sta_gate": "1.1.1.254",
+            "wifi_sta_mask": "255.255.255.0",
+            "wifi_sta_dns": "8.8.8.8",
+            "bat_temp": 20.5,
+            "bat_charg_flag": 0,
+            "bat_dischrg_flag": 1,
+            "bat_capacity": 1000,
+            "bat_rated_capacity": 2000,
+            "bat_soc_detailed": 40,
+        }
+
+        es_mode_response = {
+            "id": 1,
+            "result": {"mode": "Auto", "bat_soc": 55, "ongrid_power": 123},
+        }
+        es_status_response = {
+            "id": 2,
+            "result": {
+                "bat_soc": 66,
+                "bat_cap": 5120,
+                "bat_power": 150,
+                "pv_power": 400,
+                "ongrid_power": 200,
+                "offgrid_power": 50,
+                "total_pv_energy": 1000,
+                "total_grid_output_energy": 2000,
+                "total_grid_input_energy": 3000,
+                "total_load_energy": 4000,
+            },
+        }
+        em_status_response = {
+            "id": 3,
+            "result": {
+                "ct_state": 1,
+                "a_power": 10,
+                "b_power": 11,
+                "c_power": 12,
+                "total_power": 33,
+            },
+        }
+        pv_status_response = {
+            "id": 4,
+            "result": {
+                "pv1_power": 700,
+                "pv1_voltage": 35,
+                "pv1_current": 2.0,
+                "pv1_state": 1,
+            },
+        }
+        wifi_status_response = {
+            "id": 5,
+            "result": {
+                "rssi": -60,
+                "ssid": "TestNet",
+                "sta_ip": "192.168.1.10",
+                "sta_gate": "192.168.1.1",
+                "sta_mask": "255.255.255.0",
+                "sta_dns": "8.8.8.8",
+            },
+        }
+        bat_status_response = {
+            "id": 6,
+            "result": {
+                "bat_temp": 30.5,
+                "charg_flag": 1,
+                "dischrg_flag": 0,
+                "bat_capacity": 2500,
+                "rated_capacity": 5000,
+                "soc": 77,
+            },
+        }
+
+        async def mock_send_request(message: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            method = json.loads(message).get("method")
+            if method == "ES.GetMode":
+                if es_mode_ok:
+                    return es_mode_response
+                raise TimeoutError("ES.GetMode timeout")
+            if method == "ES.GetStatus":
+                if es_status_ok:
+                    return es_status_response
+                raise TimeoutError("ES.GetStatus timeout")
+            if method == "EM.GetStatus":
+                if em_ok:
+                    return em_status_response
+                raise TimeoutError("EM.GetStatus timeout")
+            if method == "PV.GetStatus":
+                if pv_ok:
+                    return pv_status_response
+                raise TimeoutError("PV.GetStatus timeout")
+            if method == "Wifi.GetStatus":
+                if wifi_ok:
+                    return wifi_status_response
+                raise TimeoutError("Wifi.GetStatus timeout")
+            if method == "Bat.GetStatus":
+                if bat_ok:
+                    return bat_status_response
+                raise TimeoutError("Bat.GetStatus timeout")
+            return {}
+
+        with patch.object(client, "send_request", side_effect=mock_send_request):
+            with patch("asyncio.sleep", AsyncMock()):
+                result = await client.get_device_status(
+                    "192.168.1.100",
+                    delay_between_requests=0,
+                    previous_status=previous_status,
+                )
+
+        es_mode_data = parse_es_mode_response(es_mode_response) if es_mode_ok else None
+        es_status_data = (
+            parse_es_status_response(es_status_response) if es_status_ok else None
+        )
+        em_status_data = parse_em_status_response(em_status_response) if em_ok else None
+        pv_status_data = parse_pv_status_response(pv_status_response) if pv_ok else None
+        wifi_status_data = (
+            parse_wifi_status_response(wifi_status_response) if wifi_ok else None
+        )
+        bat_status_data = (
+            parse_bat_status_response(bat_status_response) if bat_ok else None
+        )
+
+        expected = merge_device_status(
+            es_mode_data=es_mode_data,
+            es_status_data=es_status_data,
+            pv_status_data=pv_status_data,
+            wifi_status_data=wifi_status_data,
+            em_status_data=em_status_data,
+            bat_status_data=bat_status_data,
+            device_ip="192.168.1.100",
+            last_update=1000.0,
+            previous_status=previous_status,
+        )
+        expected["has_fresh_data"] = any(
+            (es_mode_ok, es_status_ok, em_ok, pv_ok, wifi_ok, bat_ok)
+        )
+
+        assert result == expected
 
     async def test_all_failures_uses_previous_status(self) -> None:
         """Test that all failures fall back to previous status."""
