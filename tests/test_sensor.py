@@ -234,6 +234,34 @@ async def test_ct_connection_sensor_created(
         assert entry.disabled_by is not None  # Disabled by default
 
 
+async def test_ct_connection_sensor_created_when_value_missing(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test CT connection binary sensor is created even if value is missing."""
+    mock_config_entry.add_to_hass(hass)
+
+    status = {
+        "device_mode": "auto",
+        "battery_soc": 55,
+        "battery_power": 120,
+        "ct_state": None,
+        "ct_connected": None,
+    }
+
+    client = create_mock_client(status=status)
+
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_registry = er.async_get(hass)
+        entry = entity_registry.async_get(
+            "binary_sensor.marstek_venus_v3_ct_connection"
+        )
+        assert entry is not None
+        assert entry.disabled_by is not None  # Disabled by default
+
+
 async def test_ct_connection_sensor_disconnected(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ) -> None:

@@ -31,9 +31,9 @@ class MarstekBinarySensorEntityDescription(BinarySensorEntityDescription):  # ty
     exists_fn: Callable[[dict[str, Any]], bool] = lambda data: True
 
 
-def _exists_key_with_value(key: str, data: dict[str, Any]) -> bool:
-    """Check if key exists and has a non-None value."""
-    return key in data and data.get(key) is not None
+def _exists_key(key: str, data: dict[str, Any]) -> bool:
+    """Check if key exists in data."""
+    return key in data
 
 
 BINARY_SENSORS: tuple[MarstekBinarySensorEntityDescription, ...] = (
@@ -44,7 +44,7 @@ BINARY_SENSORS: tuple[MarstekBinarySensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         value_fn=lambda data: data.get("ct_connected"),
-        exists_fn=lambda data: _exists_key_with_value("ct_connected", data),
+        exists_fn=lambda data: _exists_key("ct_connected", data),
     ),
     MarstekBinarySensorEntityDescription(
         key="bat_charg_flag",
@@ -56,7 +56,7 @@ BINARY_SENSORS: tuple[MarstekBinarySensorEntityDescription, ...] = (
             if data.get("bat_charg_flag") is not None
             else None
         ),
-        exists_fn=lambda data: _exists_key_with_value("bat_charg_flag", data),
+        exists_fn=lambda data: _exists_key("bat_charg_flag", data),
     ),
     MarstekBinarySensorEntityDescription(
         key="bat_dischrg_flag",
@@ -68,7 +68,7 @@ BINARY_SENSORS: tuple[MarstekBinarySensorEntityDescription, ...] = (
             if data.get("bat_dischrg_flag") is not None
             else None
         ),
-        exists_fn=lambda data: _exists_key_with_value("bat_dischrg_flag", data),
+        exists_fn=lambda data: _exists_key("bat_dischrg_flag", data),
     ),
 )
 
