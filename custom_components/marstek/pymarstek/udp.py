@@ -11,6 +11,7 @@ import json
 import logging
 import socket
 import time
+from collections.abc import Callable
 from contextlib import suppress
 from typing import Any, cast
 
@@ -683,132 +684,115 @@ class MarstekUDPClient:
         # Track if any request returned data
         has_fresh_data = False
 
+        async def _request_and_parse(
+            command: str,
+            parser: Callable[[dict[str, Any]], dict[str, Any]],
+            *,
+            success_log: Callable[[dict[str, Any]], None],
+            failure_log: str,
+        ) -> dict[str, Any] | None:
+            """Send a request and parse response with shared error handling."""
+            nonlocal made_request, has_fresh_data
+            if made_request:
+                await asyncio.sleep(delay_between_requests)
+            try:
+                response = await self.send_request(
+                    command, device_ip, port, timeout=timeout
+                )
+                parsed = parser(response)
+                made_request = True
+                has_fresh_data = True
+                success_log(parsed)
+                return parsed
+            except (TimeoutError, OSError, ValueError) as err:
+                _LOGGER.debug(failure_log, device_ip, err)
+                return None
+
         # Get ES mode (device_mode, ongrid_power) - always fetched (fast tier)
-        try:
-            es_mode_command = get_es_mode(0)
-            es_mode_response = await self.send_request(
-                es_mode_command, device_ip, port, timeout=timeout
-            )
-            es_mode_data = parse_es_mode_response(es_mode_response)
-            made_request = True
-            has_fresh_data = True
-            _LOGGER.debug(
+        es_mode_data = await _request_and_parse(
+            get_es_mode(0),
+            parse_es_mode_response,
+            success_log=lambda data: _LOGGER.debug(
                 "ES.GetMode parsed for %s: Mode=%s, GridPower=%sW",
                 device_ip,
-                es_mode_data.get("device_mode"),
-                es_mode_data.get("ongrid_power"),
-            )
-        except (TimeoutError, OSError, ValueError) as err:
-            _LOGGER.debug("ES.GetMode failed for %s: %s", device_ip, err)
+                data.get("device_mode"),
+                data.get("ongrid_power"),
+            ),
+            failure_log="ES.GetMode failed for %s: %s",
+        )
 
         # Get ES status (battery_power, battery_status) - always fetched (fast tier)
-        if made_request:
-            await asyncio.sleep(delay_between_requests)
-        try:
-            es_status_command = get_es_status(0)
-            es_status_response = await self.send_request(
-                es_status_command, device_ip, port, timeout=timeout
-            )
-            es_status_data = parse_es_status_response(es_status_response)
-            made_request = True
-            has_fresh_data = True
-            _LOGGER.debug(
+        es_status_data = await _request_and_parse(
+            get_es_status(0),
+            parse_es_status_response,
+            success_log=lambda data: _LOGGER.debug(
                 "ES.GetStatus parsed for %s: SOC=%s%%, BattPower=%sW, Status=%s",
                 device_ip,
-                es_status_data.get("battery_soc"),
-                es_status_data.get("battery_power"),
-                es_status_data.get("battery_status"),
-            )
-        except (TimeoutError, OSError, ValueError) as err:
-            _LOGGER.debug("ES.GetStatus failed for %s: %s", device_ip, err)
+                data.get("battery_soc"),
+                data.get("battery_power"),
+                data.get("battery_status"),
+            ),
+            failure_log="ES.GetStatus failed for %s: %s",
+        )
 
         # Get EM status (CT/energy meter) - always fetched (fast tier)
         if include_em:
-            if made_request:
-                await asyncio.sleep(delay_between_requests)
-            try:
-                em_status_command = get_em_status(0)
-                em_status_response = await self.send_request(
-                    em_status_command, device_ip, port, timeout=timeout
-                )
-                em_status_data = parse_em_status_response(em_status_response)
-                made_request = True
-                has_fresh_data = True
-                _LOGGER.debug(
+            em_status_data = await _request_and_parse(
+                get_em_status(0),
+                parse_em_status_response,
+                success_log=lambda data: _LOGGER.debug(
                     "EM.GetStatus parsed for %s: CT=%s, TotalPower=%sW",
                     device_ip,
-                    "Connected" if em_status_data.get("ct_connected") else "Not connected",
-                    em_status_data.get("em_total_power"),
-                )
-            except (TimeoutError, OSError, ValueError) as err:
-                _LOGGER.debug("EM.GetStatus failed for %s: %s", device_ip, err)
+                    "Connected" if data.get("ct_connected") else "Not connected",
+                    data.get("em_total_power"),
+                ),
+                failure_log="EM.GetStatus failed for %s: %s",
+            )
 
         # Get PV status if requested (medium tier)
         if include_pv:
-            if made_request:
-                await asyncio.sleep(delay_between_requests)
-            try:
-                pv_status_command = get_pv_status(0)
-                pv_status_response = await self.send_request(
-                    pv_status_command, device_ip, port, timeout=timeout
-                )
-                pv_status_data = parse_pv_status_response(pv_status_response)
-                made_request = True
-                has_fresh_data = True
-                _LOGGER.debug(
+            pv_status_data = await _request_and_parse(
+                get_pv_status(0),
+                parse_pv_status_response,
+                success_log=lambda data: _LOGGER.debug(
                     "PV.GetStatus parsed for %s: PV1=%sW, PV2=%sW, PV3=%sW, PV4=%sW",
                     device_ip,
-                    pv_status_data.get("pv1_power"),
-                    pv_status_data.get("pv2_power"),
-                    pv_status_data.get("pv3_power"),
-                    pv_status_data.get("pv4_power"),
-                )
-            except (TimeoutError, OSError, ValueError) as err:
-                _LOGGER.debug(
-                    "PV.GetStatus failed for %s: %s", device_ip, err
-                )
+                    data.get("pv1_power"),
+                    data.get("pv2_power"),
+                    data.get("pv3_power"),
+                    data.get("pv4_power"),
+                ),
+                failure_log="PV.GetStatus failed for %s: %s",
+            )
 
         # Get WiFi status (slow tier - RSSI signal strength)
         if include_wifi:
-            if made_request:
-                await asyncio.sleep(delay_between_requests)
-            try:
-                wifi_status_command = get_wifi_status(0)
-                wifi_status_response = await self.send_request(
-                    wifi_status_command, device_ip, port, timeout=timeout
-                )
-                wifi_status_data = parse_wifi_status_response(wifi_status_response)
-                made_request = True
-                has_fresh_data = True
-                _LOGGER.debug(
+            wifi_status_data = await _request_and_parse(
+                get_wifi_status(0),
+                parse_wifi_status_response,
+                success_log=lambda data: _LOGGER.debug(
                     "Wifi.GetStatus parsed for %s: RSSI=%s dBm, SSID=%s",
                     device_ip,
-                    wifi_status_data.get("wifi_rssi"),
-                    wifi_status_data.get("wifi_ssid"),
-                )
-            except (TimeoutError, OSError, ValueError) as err:
-                _LOGGER.debug("Wifi.GetStatus failed for %s: %s", device_ip, err)
+                    data.get("wifi_rssi"),
+                    data.get("wifi_ssid"),
+                ),
+                failure_log="Wifi.GetStatus failed for %s: %s",
+            )
 
         # Get detailed battery status (slow tier - temperature, charge flags)
         if include_bat:
-            if made_request:
-                await asyncio.sleep(delay_between_requests)
-            try:
-                bat_status_command = get_battery_status(0)
-                bat_status_response = await self.send_request(
-                    bat_status_command, device_ip, port, timeout=timeout
-                )
-                bat_status_data = parse_bat_status_response(bat_status_response)
-                has_fresh_data = True
-                _LOGGER.debug(
+            bat_status_data = await _request_and_parse(
+                get_battery_status(0),
+                parse_bat_status_response,
+                success_log=lambda data: _LOGGER.debug(
                     "Bat.GetStatus parsed for %s: Temp=%s°C, ChargFlag=%s, DischrgFlag=%s",
                     device_ip,
-                    bat_status_data.get("bat_temp"),
-                    bat_status_data.get("bat_charg_flag"),
-                    bat_status_data.get("bat_dischrg_flag"),
-                )
-            except (TimeoutError, OSError, ValueError) as err:
-                _LOGGER.debug("Bat.GetStatus failed for %s: %s", device_ip, err)
+                    data.get("bat_temp"),
+                    data.get("bat_charg_flag"),
+                    data.get("bat_dischrg_flag"),
+                ),
+                failure_log="Bat.GetStatus failed for %s: %s",
+            )
 
         # Merge data (ES.GetStatus has priority for battery data)
         # Pass previous_status to preserve values when individual requests fail

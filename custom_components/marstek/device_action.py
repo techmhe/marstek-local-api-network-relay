@@ -33,6 +33,7 @@ from .const import (
     DEFAULT_UDP_PORT,
     DOMAIN,
 )
+from .mode_config import build_manual_mode_config
 from .power import validate_power_for_entry
 from .pymarstek import MarstekUDPClient, build_command, get_es_status
 
@@ -367,17 +368,14 @@ def _build_set_mode_command(power: int, enable: int) -> str:
     """Build ES.SetMode command with manual configuration."""
     payload = {
         "id": 0,
-        "config": {
-            "mode": "Manual",
-            "manual_cfg": {
-                "time_num": 0,
-                "start_time": MANUAL_MODE_START_TIME,
-                "end_time": MANUAL_MODE_END_TIME,
-                "week_set": MANUAL_MODE_WEEK_SET,
-                "power": power,
-                "enable": enable,
-            },
-        },
+        "config": build_manual_mode_config(
+            power=power,
+            enable=enable == 1,
+            time_num=0,
+            start_time=MANUAL_MODE_START_TIME,
+            end_time=MANUAL_MODE_END_TIME,
+            week_set=MANUAL_MODE_WEEK_SET,
+        ),
     }
     return build_command(CMD_ES_SET_MODE, payload)
 

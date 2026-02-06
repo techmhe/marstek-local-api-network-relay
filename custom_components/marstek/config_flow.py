@@ -76,6 +76,64 @@ MANUAL_ENTRY_SCHEMA = vol.Schema(
 )
 
 
+def _collect_configured_macs(
+    entries: list[config_entries.ConfigEntry],
+) -> set[str]:
+    """Collect formatted MAC addresses from existing entries."""
+    configured_macs: set[str] = set()
+    for entry in entries:
+        entry_mac = (
+            entry.data.get("ble_mac")
+            or entry.data.get(CONF_MAC)
+            or entry.data.get("wifi_mac")
+        )
+        if entry_mac:
+            configured_macs.add(format_mac(entry_mac))
+    return configured_macs
+
+
+def _device_display_name(device: dict[str, Any]) -> str:
+    """Build a detailed device display name for selection lists."""
+    return (
+        f"{device.get('device_type', 'Unknown')} "
+        f"v{device.get('version', 'Unknown')} "
+        f"({device.get('wifi_name', 'No WiFi')}) "
+        f"- {device.get('ip', 'Unknown')}"
+    )
+
+
+def _split_devices_by_configured(
+    devices: list[dict[str, Any]],
+    configured_macs: set[str],
+) -> tuple[dict[str, str], list[str]]:
+    """Separate device options from already-configured devices."""
+    device_options: dict[str, str] = {}
+    already_configured_names: list[str] = []
+    for i, device in enumerate(devices):
+        device_name = _device_display_name(device)
+        device_mac = (
+            device.get("ble_mac")
+            or device.get("mac")
+            or device.get("wifi_mac")
+        )
+        is_configured = bool(
+            device_mac and format_mac(device_mac) in configured_macs
+        )
+        if is_configured:
+            already_configured_names.append(device_name)
+        else:
+            device_options[str(i)] = device_name
+    return device_options, already_configured_names
+
+
+def _format_already_configured_text(names: list[str]) -> str:
+    """Format already-configured devices for description placeholders."""
+    if not names:
+        return ""
+    description_lines = [f"- {name}" for name in names]
+    return "\n\nAlready configured devices:\n" + "\n".join(description_lines)
+
+
 def _get_unique_id_from_device_info(device_info: dict[str, Any]) -> str | None:
     """Return formatted unique id from device info, if available."""
     unique_id_mac = (
@@ -159,40 +217,14 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.info("Discovered %d devices", len(devices))
 
             # Get already configured device MACs for comparison
-            configured_macs = set()
-            for entry in self._async_current_entries(include_ignore=False):
-                entry_mac = (
-                    entry.data.get("ble_mac")
-                    or entry.data.get(CONF_MAC)
-                    or entry.data.get("wifi_mac")
-                )
-                if entry_mac:
-                    configured_macs.add(format_mac(entry_mac))
+            configured_macs = _collect_configured_macs(
+                self._async_current_entries(include_ignore=False)
+            )
 
             # Build device options, separating new and already-configured devices
-            device_options = {}
-            already_configured_names = []
-            for i, device in enumerate(devices):
-                # Build detailed device display name with all important info
-                device_name = (
-                    f"{device.get('device_type', 'Unknown')} "
-                    f"v{device.get('version', 'Unknown')} "
-                    f"({device.get('wifi_name', 'No WiFi')}) "
-                    f"- {device.get('ip', 'Unknown')}"
-                )
-                # Check if this device is already configured
-                device_mac = (
-                    device.get("ble_mac")
-                    or device.get("mac")
-                    or device.get("wifi_mac")
-                )
-                is_configured = (
-                    device_mac and format_mac(device_mac) in configured_macs
-                )
-                if is_configured:
-                    already_configured_names.append(device_name)
-                else:
-                    device_options[str(i)] = device_name
+            device_options, already_configured_names = _split_devices_by_configured(
+                devices, configured_macs
+            )
 
             # If all discovered devices are already configured, show manual entry
             if not device_options:
@@ -205,13 +237,9 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Note: The "Already configured devices:" header is embedded in the placeholder
             # value since HA config flows don't support dynamic translation lookups.
             # This is a common pattern in HA integrations for this type of dynamic content.
-            if already_configured_names:
-                description_lines = [f"- {name}" for name in already_configured_names]
-                already_configured_text = (
-                    "\n\nAlready configured devices:\n" + "\n".join(description_lines)
-                )
-            else:
-                already_configured_text = ""
+            already_configured_text = _format_already_configured_text(
+                already_configured_names
+            )
 
             return self.async_show_form(
                 step_id="user",

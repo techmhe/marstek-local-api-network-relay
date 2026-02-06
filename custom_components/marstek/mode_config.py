@@ -14,6 +14,29 @@ from .const import (
 )
 
 
+def build_manual_mode_config(
+    power: int,
+    enable: bool,
+    *,
+    time_num: int = 0,
+    start_time: str = "00:00",
+    end_time: str = "23:59",
+    week_set: int = WEEKDAYS_ALL,
+) -> dict[str, Any]:
+    """Build manual mode configuration payload."""
+    return {
+        "mode": MODE_TO_API.get(MODE_MANUAL, MODE_MANUAL),
+        "manual_cfg": {
+            "time_num": time_num,
+            "start_time": start_time,
+            "end_time": end_time,
+            "week_set": week_set,
+            "power": power,
+            "enable": 1 if enable else 0,
+        },
+    }
+
+
 def build_mode_config(mode: str) -> dict[str, Any]:
     """Build the configuration payload for a mode.
 
@@ -35,17 +58,7 @@ def build_mode_config(mode: str) -> dict[str, Any]:
         }
 
     if mode == MODE_MANUAL:
-        return {
-            "mode": api_mode,
-            "manual_cfg": {
-                "time_num": 0,
-                "start_time": "00:00",
-                "end_time": "23:59",
-                "week_set": WEEKDAYS_ALL,
-                "power": 0,
-                "enable": 0,
-            },
-        }
+        return build_manual_mode_config(power=0, enable=False)
 
     if mode == MODE_PASSIVE:
         return {

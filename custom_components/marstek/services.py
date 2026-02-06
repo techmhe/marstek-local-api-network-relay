@@ -16,7 +16,6 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 
 from .const import (
-    API_MODE_MANUAL,
     API_MODE_PASSIVE,
     CMD_ES_SET_MODE,
     DATA_UDP_CLIENT,
@@ -24,6 +23,7 @@ from .const import (
     DOMAIN,
     WEEKDAY_MAP,
 )
+from .mode_config import build_manual_mode_config
 from .power import get_power_limits_for_entry, validate_power_for_entry
 from .pymarstek import (
     MAX_PASSIVE_DURATION,
@@ -327,17 +327,14 @@ async def async_set_manual_schedule(hass: HomeAssistant, call: ServiceCall) -> N
     # Calculate week_set bitmask
     week_set = _calculate_week_set(days)
 
-    config = {
-        "mode": API_MODE_MANUAL,
-        "manual_cfg": {
-            "time_num": schedule_slot,
-            "start_time": start_time_str,
-            "end_time": end_time_str,
-            "week_set": week_set,
-            "power": power,
-            "enable": 1 if enable else 0,
-        },
-    }
+    config = build_manual_mode_config(
+        power=power,
+        enable=enable,
+        time_num=schedule_slot,
+        start_time=start_time_str,
+        end_time=end_time_str,
+        week_set=week_set,
+    )
 
     await _send_mode_command(udp_client, host, port, config)
 
@@ -367,28 +364,34 @@ async def async_clear_manual_schedules(hass: HomeAssistant, call: ServiceCall) -
 
     entry, udp_client, host, port = _get_entry_and_client_from_device_id(hass, device_id)
 
-    _LOGGER.info("Clearing 10 manual schedule slots for device %s...", device_id)
+    _LOGGER.info(
+        "Clearing %d manual schedule slots for device %s...",
+        MAX_TIME_SLOTS,
+        device_id,
+    )
 
     # Pause polling once for all 10 commands
     await udp_client.pause_polling(host)
 
     try:
         # Clear all 10 schedule slots by setting them to disabled
-        for slot in range(10):
-            config = {
-                "mode": API_MODE_MANUAL,
-                "manual_cfg": {
-                    "time_num": slot,
-                    "start_time": "00:00",
-                    "end_time": "00:00",
-                    "week_set": 0,
-                    "power": 0,
-                    "enable": 0,
-                },
-            }
+        for slot in range(MAX_TIME_SLOTS):
+            config = build_manual_mode_config(
+                power=0,
+                enable=False,
+                time_num=slot,
+                start_time="00:00",
+                end_time="00:00",
+                week_set=0,
+            )
 
             await _send_mode_command(udp_client, host, port, config, pause_polling=False)
-            _LOGGER.debug("Cleared manual schedule slot %d/10 for device %s", slot + 1, device_id)
+            _LOGGER.debug(
+                "Cleared manual schedule slot %d/%d for device %s",
+                slot + 1,
+                MAX_TIME_SLOTS,
+                device_id,
+            )
     finally:
         await udp_client.resume_polling(host)
 
@@ -461,17 +464,14 @@ async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> 
             # Calculate week_set bitmask
             week_set = _calculate_week_set(days)
 
-            config = {
-                "mode": API_MODE_MANUAL,
-                "manual_cfg": {
-                    "time_num": schedule_slot,
-                    "start_time": start_time_str,
-                    "end_time": end_time_str,
-                    "week_set": week_set,
-                    "power": power,
-                    "enable": 1 if enable else 0,
-                },
-            }
+            config = build_manual_mode_config(
+                power=power,
+                enable=enable,
+                time_num=schedule_slot,
+                start_time=start_time_str,
+                end_time=end_time_str,
+                week_set=week_set,
+            )
 
             await _send_mode_command(udp_client, host, port, config, pause_polling=False)
 

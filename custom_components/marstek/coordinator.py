@@ -118,6 +118,39 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             " [INITIAL SETUP - fast delays]" if is_initial_setup else "",
         )
 
+    def _select_polling_tiers(self, current_time: float) -> tuple[bool, bool, bool]:
+        """Decide which polling tiers to include for this update cycle."""
+        include_pv = self._supports_pv and (
+            (current_time - self._last_pv_fetch) >= self._get_medium_interval()
+        )
+        include_slow = (current_time - self._last_slow_fetch) >= self._get_slow_interval()
+        include_wifi = include_slow and self._is_wifi_status_enabled()
+        return include_pv, include_wifi, include_slow
+
+    def _has_valid_status_data(self, device_status: dict[str, Any]) -> bool:
+        """Return True if device status contains meaningful values."""
+        device_mode = device_status.get("device_mode")
+        battery_soc = device_status.get("battery_soc")
+        battery_power = device_status.get("battery_power")
+        battery_status = device_status.get("battery_status")
+        pv_power = sum(
+            device_status.get(key) or 0
+            for key in ("pv1_power", "pv2_power", "pv3_power", "pv4_power")
+        )
+        em_total_power = device_status.get("em_total_power")
+        wifi_rssi = device_status.get("wifi_rssi")
+        bat_temp = device_status.get("bat_temp")
+
+        return (
+            device_mode not in (None, "Unknown", "unknown")
+            or battery_soc is not None
+            or battery_power is not None
+            or battery_status not in (None, "Unknown")
+            or pv_power != 0
+            or em_total_power is not None
+            or wifi_rssi is not None
+            or bat_temp is not None
+        )
 
     def _get_medium_interval(self) -> int:
         """Get medium polling interval from options."""
@@ -216,19 +249,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Determine which data types to fetch based on elapsed time
         current_time = time.monotonic()
-        medium_interval = self._get_medium_interval()
-        slow_interval = self._get_slow_interval()
         request_delay = self._get_request_delay()
 
-        # PV data - medium interval, but only if device supports PV (Venus A/D)
-        include_pv = (
-            self._supports_pv
-            and (current_time - self._last_pv_fetch) >= medium_interval
+        include_pv, include_wifi, include_slow = self._select_polling_tiers(
+            current_time
         )
-
-        # WiFi and battery details - slow interval
-        include_slow = (current_time - self._last_slow_fetch) >= slow_interval
-        include_wifi = include_slow and self._is_wifi_status_enabled()
 
         # Get configured timeout
         request_timeout = self._get_request_timeout()
@@ -268,25 +293,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device_mode = device_status.get("device_mode")
             battery_soc = device_status.get("battery_soc")
             battery_power = device_status.get("battery_power")
-            battery_status = device_status.get("battery_status")
-            pv_power = sum(
-                device_status.get(key) or 0
-                for key in ("pv1_power", "pv2_power", "pv3_power", "pv4_power")
-            )
-            em_total_power = device_status.get("em_total_power")
-            wifi_rssi = device_status.get("wifi_rssi")
-            bat_temp = device_status.get("bat_temp")
-
-            has_valid_data = (
-                device_mode not in (None, "Unknown", "unknown")
-                or battery_soc is not None
-                or battery_power is not None
-                or battery_status not in (None, "Unknown")
-                or pv_power != 0
-                or em_total_power is not None
-                or wifi_rssi is not None
-                or bat_temp is not None
-            )
+            has_valid_data = self._has_valid_status_data(device_status)
 
             if not has_fresh_data:
                 _LOGGER.warning(
