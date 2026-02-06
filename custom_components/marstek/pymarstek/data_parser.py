@@ -321,7 +321,14 @@ def merge_device_status(
         "device_mode": None,
         "battery_status": None,
         "ongrid_power": None,
+        "offgrid_power": None,
+        "pv_power": None,
+        "bat_cap": None,
         "household_consumption": None,
+        "total_pv_energy": None,
+        "total_grid_output_energy": None,
+        "total_grid_input_energy": None,
+        "total_load_energy": None,
         # WiFi status defaults
         "wifi_rssi": None,
         "wifi_ssid": None,
@@ -338,6 +345,7 @@ def merge_device_status(
         "bat_dischrg_flag": None,
         "bat_capacity": None,
         "bat_rated_capacity": None,
+        "bat_soc_detailed": None,
     }
     
     def _is_unknown_value(value: Any) -> bool:

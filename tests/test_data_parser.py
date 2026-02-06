@@ -351,6 +351,12 @@ class TestMergeDeviceStatus:
             "em_total_power": 500,
             "wifi_rssi": -55,
             "bat_temp": 25.0,
+            "offgrid_power": 120,
+            "bat_cap": 5120,
+            "total_pv_energy": 10000,
+            "total_grid_output_energy": 20000,
+            "total_grid_input_energy": 15000,
+            "total_load_energy": 18000,
         }
         
         # Simulate: ES.GetMode succeeded, but EM.GetStatus and Bat.GetStatus failed
@@ -385,6 +391,12 @@ class TestMergeDeviceStatus:
         assert result["ct_connected"] is True  # Preserved
         assert result["wifi_rssi"] == -55  # Preserved
         assert result["bat_temp"] == 25.0  # Preserved
+        assert result["offgrid_power"] == 120  # Preserved
+        assert result["bat_cap"] == 5120  # Preserved
+        assert result["total_pv_energy"] == 10000  # Preserved
+        assert result["total_grid_output_energy"] == 20000  # Preserved
+        assert result["total_grid_input_energy"] == 15000  # Preserved
+        assert result["total_load_energy"] == 18000  # Preserved
 
     def test_previous_status_unknown_values_replaced(self):
         """Test that 'Unknown' default values are replaced by previous_status."""
