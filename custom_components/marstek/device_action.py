@@ -126,7 +126,7 @@ async def async_validate_action_config(
     action_power = config.get(ATTR_POWER)
     power, enable = _resolve_action_settings(action_type, action_power, entry)
     if enable:
-        _validate_action_power(entry, abs(power))
+        _validate_action_power(entry, power)
 
     return config
 
@@ -185,7 +185,7 @@ async def async_call_action_from_config(
 
     # Validate power against device limits (including socket limit)
     if enable:
-        _validate_action_power(entry, abs(power))
+        _validate_action_power(entry, power)
 
     command = _build_set_mode_command(power, enable)
 
@@ -320,7 +320,7 @@ async def async_get_action_capabilities(
 
 
 def _validate_action_power(entry: Any, power: int) -> None:
-    """Validate action power against device limits."""
+    """Validate signed action power against device limits."""
     device_type = entry.data.get("device_type")
     socket_limit = entry.options.get(
         CONF_SOCKET_LIMIT,
