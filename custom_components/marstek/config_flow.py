@@ -76,6 +76,37 @@ MANUAL_ENTRY_SCHEMA = vol.Schema(
 )
 
 
+def _get_unique_id_from_device_info(device_info: dict[str, Any]) -> str | None:
+    """Return formatted unique id from device info, if available."""
+    unique_id_mac = (
+        device_info.get("ble_mac")
+        or device_info.get("mac")
+        or device_info.get("wifi_mac")
+    )
+    if not unique_id_mac:
+        return None
+    try:
+        return format_mac(unique_id_mac)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_entry_data(host: str, port: int, device_info: dict[str, Any]) -> dict[str, Any]:
+    """Build config entry data from device info."""
+    return {
+        CONF_HOST: host,
+        CONF_PORT: port,
+        CONF_MAC: device_info.get("mac"),
+        "device_type": device_info.get("device_type"),
+        "version": device_info.get("version"),
+        "wifi_name": device_info.get("wifi_name"),
+        "wifi_mac": device_info.get("wifi_mac"),
+        "ble_mac": device_info.get("ble_mac"),
+        "model": device_info.get("model"),
+        "firmware": device_info.get("firmware"),
+    }
+
+
 class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Marstek."""
 
@@ -95,33 +126,20 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             # Use BLE-MAC as unique_id for stability (beardhatcode & mik-laj feedback)
             # BLE-MAC is more stable than WiFi MAC and ensures device history continuity
-            unique_id_mac = (
-                device.get("ble_mac") or device.get("mac") or device.get("wifi_mac")
-            )
-            if not unique_id_mac:
+            formatted_unique_id = _get_unique_id_from_device_info(device)
+            if not formatted_unique_id:
                 return self.async_show_form(
                     step_id="user",
                     data_schema=vol.Schema({}),
                     errors={"base": "invalid_discovery_info"},
                 )
 
-            await self.async_set_unique_id(format_mac(unique_id_mac))
+            await self.async_set_unique_id(formatted_unique_id)
             self._abort_if_unique_id_configured()
 
             return self.async_create_entry(
                 title=f"Marstek {device['device_type']}",
-                data={
-                    CONF_HOST: device["ip"],
-                    CONF_PORT: DEFAULT_UDP_PORT,
-                    CONF_MAC: device["mac"],
-                    "device_type": device["device_type"],
-                    "version": device["version"],
-                    "wifi_name": device["wifi_name"],
-                    "wifi_mac": device["wifi_mac"],
-                    "ble_mac": device["ble_mac"],
-                    "model": device["model"],  # Compatibility field
-                    "firmware": device["firmware"],  # Compatibility field
-                },
+                data=_build_entry_data(device["ip"], DEFAULT_UDP_PORT, device),
             )
 
         # Start broadcast device discovery
@@ -240,35 +258,20 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
 
                 # Check if device is already configured
-                unique_id_mac = (
-                    device_info.get("ble_mac")
-                    or device_info.get("mac")
-                    or device_info.get("wifi_mac")
-                )
-                if not unique_id_mac:
+                formatted_unique_id = _get_unique_id_from_device_info(device_info)
+                if not formatted_unique_id:
                     return self.async_show_form(
                         step_id="manual",
                         data_schema=MANUAL_ENTRY_SCHEMA,
                         errors={"base": "invalid_discovery_info"},
                     )
 
-                await self.async_set_unique_id(format_mac(unique_id_mac))
+                await self.async_set_unique_id(formatted_unique_id)
                 self._abort_if_unique_id_configured()
 
                 return self.async_create_entry(
                     title=f"Marstek {device_info.get('device_type', 'Device')}",
-                    data={
-                        CONF_HOST: host,
-                        CONF_PORT: port,
-                        CONF_MAC: device_info.get("mac"),
-                        "device_type": device_info.get("device_type"),
-                        "version": device_info.get("version"),
-                        "wifi_name": device_info.get("wifi_name"),
-                        "wifi_mac": device_info.get("wifi_mac"),
-                        "ble_mac": device_info.get("ble_mac"),
-                        "model": device_info.get("model"),
-                        "firmware": device_info.get("firmware"),
-                    },
+                    data=_build_entry_data(host, port, device_info),
                 )
 
             except (ConnectionError, OSError, TimeoutError) as err:
@@ -384,15 +387,10 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not device_info:
                     errors["base"] = "cannot_connect"
                 else:
-                    unique_id_mac = (
-                        device_info.get("ble_mac")
-                        or device_info.get("mac")
-                        or device_info.get("wifi_mac")
-                    )
-                    if not unique_id_mac:
+                    formatted_unique_id = _get_unique_id_from_device_info(device_info)
+                    if not formatted_unique_id:
                         errors["base"] = "invalid_discovery_info"
                     else:
-                        formatted_unique_id = format_mac(unique_id_mac)
                         if self.unique_id and self.unique_id != formatted_unique_id:
                             errors["base"] = "unique_id_mismatch"
                         else:
@@ -401,18 +399,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                             return self.async_create_entry(
                                 title=f"Marstek {device_info.get('device_type', 'Device')}",
-                                data={
-                                    CONF_HOST: host,
-                                    CONF_PORT: port,
-                                    CONF_MAC: device_info.get("mac"),
-                                    "device_type": device_info.get("device_type"),
-                                    "version": device_info.get("version"),
-                                    "wifi_name": device_info.get("wifi_name"),
-                                    "wifi_mac": device_info.get("wifi_mac"),
-                                    "ble_mac": device_info.get("ble_mac"),
-                                    "model": device_info.get("model"),
-                                    "firmware": device_info.get("firmware"),
-                                },
+                                data=_build_entry_data(host, port, device_info),
                             )
 
             except (ConnectionError, OSError, TimeoutError):

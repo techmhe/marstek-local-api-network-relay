@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import suppress
 from datetime import datetime, timedelta
 from typing import Any, ClassVar, Self
@@ -42,7 +43,7 @@ class MarstekScanner:
         self._hass = hass
         self._track_interval: CALLBACK_TYPE | None = None
         self._scan_task: asyncio.Task[None] | None = None
-        self._last_scan_time: datetime | None = None
+        self._last_scan_monotonic: float | None = None
         self._unconfigured_seen: dict[str, datetime] = {}
 
     @classmethod
@@ -107,7 +108,7 @@ class MarstekScanner:
 
         # Execute scan in background task (non-blocking)
         self._scan_task = self._hass.async_create_task(self._async_scan_impl())
-        self._last_scan_time = datetime.now()
+        self._last_scan_monotonic = time.monotonic()
 
     @callback
     def async_request_scan(self) -> bool:
@@ -120,13 +121,14 @@ class MarstekScanner:
             True if scan was triggered, False if debounced (too soon after last scan)
         """
         # Debounce: don't scan if we recently scanned
-        if self._last_scan_time is not None:
-            elapsed = datetime.now() - self._last_scan_time
-            if elapsed < MIN_SCAN_INTERVAL:
+        if self._last_scan_monotonic is not None:
+            elapsed = time.monotonic() - self._last_scan_monotonic
+            min_interval = MIN_SCAN_INTERVAL.total_seconds()
+            if elapsed < min_interval:
                 _LOGGER.debug(
-                    "Scan request debounced (last scan %s ago, min interval %s)",
+                    "Scan request debounced (last scan %.2fs ago, min interval %.2fs)",
                     elapsed,
-                    MIN_SCAN_INTERVAL,
+                    min_interval,
                 )
                 return False
 

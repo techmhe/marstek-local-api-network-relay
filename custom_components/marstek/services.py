@@ -19,14 +19,12 @@ from .const import (
     API_MODE_MANUAL,
     API_MODE_PASSIVE,
     CMD_ES_SET_MODE,
-    CONF_SOCKET_LIMIT,
     DATA_UDP_CLIENT,
     DEFAULT_UDP_PORT,
     DOMAIN,
     WEEKDAY_MAP,
-    device_default_socket_limit,
-    get_device_power_limits,
 )
+from .power import get_power_limits_for_entry, validate_power_for_entry
 from .pymarstek import (
     MAX_PASSIVE_DURATION,
     MAX_POWER_VALUE,
@@ -193,29 +191,22 @@ def _get_entry_and_client_from_device_id(
     )
 
 
-def _get_power_limits(entry: MarstekConfigEntry) -> tuple[int, int]:
-    """Get power limits for a device based on model and socket limit option."""
-    device_type = entry.data.get("device_type")
-    socket_limit = entry.options.get(
-        CONF_SOCKET_LIMIT,
-        device_default_socket_limit(device_type),
+def _power_error(requested: int, min_power: int, max_power: int) -> HomeAssistantError:
+    """Build a power validation error for service calls."""
+    return HomeAssistantError(
+        translation_domain=DOMAIN,
+        translation_key="power_out_of_range",
+        translation_placeholders={
+            "requested": str(requested),
+            "min": str(min_power),
+            "max": str(max_power),
+        },
     )
-    return get_device_power_limits(device_type, socket_limit=socket_limit)
 
 
 def _validate_power_for_device(power: int, entry: MarstekConfigEntry) -> None:
     """Validate requested power against device limits."""
-    min_power, max_power = _get_power_limits(entry)
-    if power < min_power or power > max_power:
-        raise HomeAssistantError(
-            translation_domain=DOMAIN,
-            translation_key="power_out_of_range",
-            translation_placeholders={
-                "requested": str(power),
-                "min": str(min_power),
-                "max": str(max_power),
-            },
-        )
+    validate_power_for_entry(entry, power, _power_error)
 
 
 async def _send_mode_command(
@@ -440,7 +431,7 @@ async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> 
     schedules = call.data[ATTR_SCHEDULES]
 
     entry, udp_client, host, port = _get_entry_and_client_from_device_id(hass, device_id)
-    min_power, max_power = _get_power_limits(entry)
+    min_power, max_power = get_power_limits_for_entry(entry)
 
     # Pause polling once for all schedule commands
     await udp_client.pause_polling(host)

@@ -12,6 +12,7 @@ from homeassistant.components.device_automation import (  # type: ignore[attr-de
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_DEVICE_ID, CONF_DOMAIN, CONF_HOST, CONF_PORT, CONF_TYPE
 from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import format_mac
@@ -23,7 +24,6 @@ from .const import (
     CONF_POLL_INTERVAL_FAST,
     CONF_REQUEST_DELAY,
     CONF_REQUEST_TIMEOUT,
-    CONF_SOCKET_LIMIT,
     DATA_UDP_CLIENT,
     DEFAULT_ACTION_CHARGE_POWER,
     DEFAULT_ACTION_DISCHARGE_POWER,
@@ -32,9 +32,8 @@ from .const import (
     DEFAULT_REQUEST_TIMEOUT,
     DEFAULT_UDP_PORT,
     DOMAIN,
-    device_default_socket_limit,
-    get_device_power_limits,
 )
+from .power import validate_power_for_entry
 from .pymarstek import MarstekUDPClient, build_command, get_es_status
 
 _LOGGER = logging.getLogger(__name__)
@@ -125,7 +124,7 @@ async def async_validate_action_config(
     action_power = config.get(ATTR_POWER)
     power, enable = _resolve_action_settings(action_type, action_power, entry)
     if enable:
-        _validate_action_power(entry, power)
+        _validate_action_power_config(entry, power)
 
     return config
 
@@ -184,7 +183,7 @@ async def async_call_action_from_config(
 
     # Validate power against device limits (including socket limit)
     if enable:
-        _validate_action_power(entry, power)
+        _validate_action_power_runtime(entry, power)
 
     command = _build_set_mode_command(power, enable)
 
@@ -320,27 +319,48 @@ async def async_get_action_capabilities(
     return {"extra_fields": vol.Schema({})}
 
 
-def _validate_action_power(entry: ConfigEntry, power: int) -> None:
-    """Validate signed action power against device limits."""
-    device_type = entry.data.get("device_type")
-    socket_limit = entry.options.get(
-        CONF_SOCKET_LIMIT,
-        device_default_socket_limit(device_type),
+def _config_power_error(
+    requested: int,
+    min_power: int,
+    max_power: int,
+) -> InvalidDeviceAutomationConfig:
+    """Build a power validation error for config validation."""
+    return InvalidDeviceAutomationConfig(
+        translation_domain=DOMAIN,
+        translation_key="power_out_of_range",
+        translation_placeholders={
+            "requested": str(requested),
+            "min": str(min_power),
+            "max": str(max_power),
+        },
     )
-    min_power, max_power = get_device_power_limits(
-        device_type,
-        socket_limit=socket_limit,
+
+
+def _runtime_power_error(
+    requested: int,
+    min_power: int,
+    max_power: int,
+) -> HomeAssistantError:
+    """Build a power validation error for runtime action execution."""
+    return HomeAssistantError(
+        translation_domain=DOMAIN,
+        translation_key="power_out_of_range",
+        translation_placeholders={
+            "requested": str(requested),
+            "min": str(min_power),
+            "max": str(max_power),
+        },
     )
-    if power < min_power or power > max_power:
-        raise InvalidDeviceAutomationConfig(
-            translation_domain=DOMAIN,
-            translation_key="power_out_of_range",
-            translation_placeholders={
-                "requested": str(power),
-                "min": str(min_power),
-                "max": str(max_power),
-            },
-        )
+
+
+def _validate_action_power_config(entry: ConfigEntry, power: int) -> None:
+    """Validate power during config validation (raises InvalidDeviceAutomationConfig)."""
+    validate_power_for_entry(entry, power, _config_power_error)
+
+
+def _validate_action_power_runtime(entry: ConfigEntry, power: int) -> None:
+    """Validate power during runtime execution (raises HomeAssistantError)."""
+    validate_power_for_entry(entry, power, _runtime_power_error)
 
 
 def _build_set_mode_command(power: int, enable: int) -> str:

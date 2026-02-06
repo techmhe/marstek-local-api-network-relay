@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -99,7 +100,7 @@ async def test_scanner_async_scan_creates_background_task(hass: HomeAssistant):
 async def test_scanner_async_request_scan_debounced(hass: HomeAssistant) -> None:
     """Test async_request_scan debounces rapid scans."""
     scanner = MarstekScanner(hass)
-    scanner._last_scan_time = datetime.now()
+    scanner._last_scan_monotonic = time.monotonic()
 
     assert scanner.async_request_scan() is False
 
@@ -487,8 +488,8 @@ async def test_scanner_prune_unconfigured_cache(hass: HomeAssistant) -> None:
     """Test pruning unconfigured cache when devices become configured."""
     scanner = MarstekScanner(hass)
     scanner._unconfigured_seen = {
-        "aa:bb:cc:dd:ee:ff": scanner._last_scan_time or datetime.now(),
-        "11:22:33:44:55:66": scanner._last_scan_time or datetime.now(),
+        "aa:bb:cc:dd:ee:ff": datetime.now(),
+        "11:22:33:44:55:66": datetime.now(),
     }
 
     scanner._prune_unconfigured_cache({"aa:bb:cc:dd:ee:ff"})
