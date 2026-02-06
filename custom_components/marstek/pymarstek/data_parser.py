@@ -336,6 +336,8 @@ def merge_device_status(
         "bat_temp": None,
         "bat_charg_flag": None,
         "bat_dischrg_flag": None,
+        "bat_capacity": None,
+        "bat_rated_capacity": None,
     }
     
     def _is_unknown_value(value: Any) -> bool:

@@ -315,6 +315,8 @@ class TestMergeDeviceStatus:
         assert result["wifi_rssi"] is None  # Default for optional field
         assert result["ct_connected"] is None  # Default for optional field
         assert result["bat_temp"] is None  # Default for optional field
+        assert result["bat_capacity"] is None  # Default for optional field
+        assert result["bat_rated_capacity"] is None  # Default for optional field
 
     def test_es_status_priority_over_es_mode(self):
         """Test that ES.GetStatus battery_soc takes priority over ES.GetMode."""
