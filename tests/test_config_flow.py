@@ -690,7 +690,7 @@ async def test_dhcp_unchanged_ip(
 
 
 async def test_dhcp_no_existing_entry(hass: HomeAssistant) -> None:
-    """Test DHCP discovery with no existing entry redirects to user flow."""
+    """Test DHCP discovery with no existing entry shows confirm step."""
     # Don't add any config entry - test line 365-366
 
     # Use simple NamedTuple-like object for DHCP discovery info
@@ -704,14 +704,262 @@ async def test_dhcp_no_existing_entry(hass: HomeAssistant) -> None:
         },
     )
 
-    # Mock discovery to prevent network socket calls
-    with patch_discovery([]):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "dhcp"}, data=dhcp_info
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "dhcp"}, data=dhcp_info
+    )
+
+    # Should show confirm form (no existing entry to update)
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "confirm"
+
+
+async def test_dhcp_confirm_creates_entry(hass: HomeAssistant) -> None:
+    """Test DHCP discovery confirm creates entry for new device."""
+    dhcp_info = type(
+        "DhcpInfo",
+        (),
+        {
+            "ip": "192.168.1.100",
+            "hostname": "marstek",
+            "macaddress": "aabbccddeeff",
+        },
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "dhcp"}, data=dhcp_info
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "confirm"
+
+    device_info = {
+        "ip": "192.168.1.100",
+        "ble_mac": "AA:BB:CC:DD:EE:FF",
+        "mac": "AA:BB:CC:DD:EE:FF",
+        "device_type": "Venus",
+        "version": "3.0",
+        "wifi_name": "marstek",
+        "wifi_mac": "11:22:33:44:55:66",
+        "model": "Venus",
+        "firmware": "3.0",
+    }
+
+    with patch_manual_connection(device_info=device_info):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={"host": "192.168.1.100", "port": 30000},
         )
 
-    # Should show user form (no existing entry to update)
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["host"] == "192.168.1.100"
+    assert format_mac(result["data"]["ble_mac"]) == "aa:bb:cc:dd:ee:ff"
+
+
+async def test_confirm_unique_id_mismatch(hass: HomeAssistant) -> None:
+    """Test confirm step errors when discovered MAC does not match device."""
+    dhcp_info = type(
+        "DhcpInfo",
+        (),
+        {
+            "ip": "192.168.1.100",
+            "hostname": "marstek",
+            "macaddress": "aabbccddeeff",
+        },
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "dhcp"}, data=dhcp_info
+    )
     assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "confirm"
+
+    device_info = {
+        "ip": "192.168.1.100",
+        "ble_mac": "11:22:33:44:55:66",
+        "mac": "11:22:33:44:55:66",
+        "device_type": "Venus",
+        "version": "3.0",
+        "wifi_name": "marstek",
+        "wifi_mac": "11:22:33:44:55:66",
+    }
+
+    with patch_manual_connection(device_info=device_info):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={"host": "192.168.1.100", "port": 30000},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "confirm"
+    assert result["errors"]["base"] == "unique_id_mismatch"
+
+
+async def test_confirm_cannot_connect(hass: HomeAssistant) -> None:
+    """Test confirm step shows cannot_connect error on failure."""
+    dhcp_info = type(
+        "DhcpInfo",
+        (),
+        {
+            "ip": "192.168.1.100",
+            "hostname": "marstek",
+            "macaddress": "aabbccddeeff",
+        },
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "dhcp"}, data=dhcp_info
+    )
+    assert result["step_id"] == "confirm"
+
+    with patch_manual_connection(device_info=None):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={"host": "192.168.1.100", "port": 30000},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "confirm"
+    assert result["errors"]["base"] == "cannot_connect"
+
+
+async def test_confirm_invalid_discovery_info(hass: HomeAssistant) -> None:
+    """Test confirm step errors when device info is missing MACs."""
+    dhcp_info = type(
+        "DhcpInfo",
+        (),
+        {
+            "ip": "192.168.1.100",
+            "hostname": "marstek",
+            "macaddress": "aabbccddeeff",
+        },
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "dhcp"}, data=dhcp_info
+    )
+    assert result["step_id"] == "confirm"
+
+    device_info = {
+        "ip": "192.168.1.100",
+        "ble_mac": None,
+        "mac": None,
+        "wifi_mac": None,
+        "device_type": "Venus",
+        "version": "3.0",
+    }
+
+    with patch_manual_connection(device_info=device_info):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={"host": "192.168.1.100", "port": 30000},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "confirm"
+    assert result["errors"]["base"] == "invalid_discovery_info"
+
+
+async def test_confirm_value_error(hass: HomeAssistant) -> None:
+    """Test confirm step handles invalid responses (ValueError)."""
+    dhcp_info = type(
+        "DhcpInfo",
+        (),
+        {
+            "ip": "192.168.1.100",
+            "hostname": "marstek",
+            "macaddress": "aabbccddeeff",
+        },
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "dhcp"}, data=dhcp_info
+    )
+    assert result["step_id"] == "confirm"
+
+    with patch_manual_connection(error=ValueError("invalid")):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={"host": "192.168.1.100", "port": 30000},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "confirm"
+    assert result["errors"]["base"] == "invalid_discovery_info"
+
+
+async def test_dhcp_updates_ip_without_unique_id(hass: HomeAssistant) -> None:
+    """Test DHCP discovery updates entries that lack unique_id but have MACs."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=None,
+        data={
+            "host": "1.2.3.4",
+            "ble_mac": "AA:BB:CC:DD:EE:FF",
+            "mac": "AA:BB:CC:DD:EE:FF",
+            "device_type": "Venus",
+            "version": 3,
+            "wifi_name": "marstek",
+            "wifi_mac": "11:22:33:44:55:66",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    dhcp_info = type(
+        "DhcpInfo",
+        (),
+        {
+            "ip": "1.2.3.5",
+            "hostname": "marstek",
+            "macaddress": "aabbccddeeff",
+        },
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "dhcp"}, data=dhcp_info
+    )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    assert hass.config_entries.async_entries(DOMAIN)[0].data["host"] == "1.2.3.5"
+
+
+async def test_integration_discovery_confirm_creates_entry(
+    hass: HomeAssistant,
+) -> None:
+    """Test integration discovery confirm creates entry for new device."""
+    discovery_info = {
+        "ip": "192.168.1.101",
+        "ble_mac": "AA:BB:CC:DD:EE:FF",
+        "mac": "AA:BB:CC:DD:EE:FF",
+        "device_type": "Venus",
+        "version": 3,
+    }
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "integration_discovery"}, data=discovery_info
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "confirm"
+
+    device_info = {
+        "ip": "192.168.1.101",
+        "ble_mac": "AA:BB:CC:DD:EE:FF",
+        "mac": "AA:BB:CC:DD:EE:FF",
+        "device_type": "Venus",
+        "version": "3.0",
+        "wifi_name": "marstek",
+        "wifi_mac": "11:22:33:44:55:66",
+        "model": "Venus",
+        "firmware": "3.0",
+    }
+
+    with patch_manual_connection(device_info=device_info):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={"host": "192.168.1.101", "port": 30000},
+        )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["host"] == "192.168.1.101"
 
 
 async def test_integration_discovery_missing_ble_mac(hass: HomeAssistant) -> None:

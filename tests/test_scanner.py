@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -57,6 +58,26 @@ async def test_scanner_async_setup(hass: HomeAssistant):
         assert scanner._track_interval is not None
 
 
+async def test_scanner_async_setup_noop_when_initialized(hass: HomeAssistant):
+    """Test scanner setup returns early when already initialized."""
+    scanner = MarstekScanner(hass)
+
+    with (
+        patch(
+            "custom_components.marstek.scanner.async_track_time_interval"
+        ) as mock_track,
+        patch.object(scanner, "async_scan") as mock_scan,
+    ):
+        mock_track.return_value = MagicMock()
+        await scanner.async_setup()
+
+        # Second call should no-op
+        await scanner.async_setup()
+
+        mock_track.assert_called_once()
+        mock_scan.assert_called_once()
+
+
 async def test_scanner_async_scan_creates_background_task(hass: HomeAssistant):
     """Test async_scan creates background task."""
     scanner = MarstekScanner(hass)
@@ -73,6 +94,23 @@ async def test_scanner_async_scan_creates_background_task(hass: HomeAssistant):
     assert captured_coro is not None
     # Close the coroutine to prevent warning (we don't need to run it)
     captured_coro.close()
+
+
+async def test_scanner_async_request_scan_debounced(hass: HomeAssistant) -> None:
+    """Test async_request_scan debounces rapid scans."""
+    scanner = MarstekScanner(hass)
+    scanner._last_scan_time = datetime.now()
+
+    assert scanner.async_request_scan() is False
+
+
+async def test_scanner_async_request_scan_triggers(hass: HomeAssistant) -> None:
+    """Test async_request_scan triggers a scan when not debounced."""
+    scanner = MarstekScanner(hass)
+
+    with patch.object(scanner, "async_scan") as mock_scan:
+        assert scanner.async_request_scan() is True
+        mock_scan.assert_called_once()
 
 
 async def test_scanner_scan_impl_no_devices(hass: HomeAssistant):
@@ -227,7 +265,7 @@ async def test_scanner_scan_impl_skips_not_loaded_entry(
 
 
 async def test_scanner_scan_impl_entry_missing_ble_mac(hass: HomeAssistant):
-    """Test _async_scan_impl skips entries without BLE-MAC."""
+    """Test _async_scan_impl still discovers unconfigured devices without entry BLE-MAC."""
     # Entry without ble_mac
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -253,14 +291,13 @@ async def test_scanner_scan_impl_entry_missing_ble_mac(hass: HomeAssistant):
     ):
         await scanner._async_scan_impl()
 
-        # Entry has no ble_mac, should skip
-        mock_create_flow.assert_not_called()
+        mock_create_flow.assert_called_once()
 
 
 async def test_scanner_scan_impl_no_matching_device(
     hass: HomeAssistant, mock_config_entry
 ):
-    """Test _async_scan_impl when discovered device doesn't match any entry."""
+    """Test _async_scan_impl triggers discovery for unconfigured devices."""
     mock_config_entry.add_to_hass(hass)
     mock_config_entry.mock_state(hass, ConfigEntryState.LOADED)
 
@@ -284,7 +321,75 @@ async def test_scanner_scan_impl_no_matching_device(
     ):
         await scanner._async_scan_impl()
 
-        # No matching device, should not trigger discovery flow
+        mock_create_flow.assert_called_once()
+        call_args = mock_create_flow.call_args
+        assert call_args[1]["data"]["ip"] == "5.6.7.8"
+        assert call_args[1]["data"]["ble_mac"] == "XX:XX:XX:XX:XX:XX"
+
+
+async def test_scanner_scan_impl_unconfigured_debounce(hass: HomeAssistant):
+    """Test unconfigured discovery is debounced across scans."""
+    scanner = MarstekScanner(hass)
+
+    devices = [
+        {
+            "ip": "5.6.7.8",
+            "ble_mac": "AA:BB:CC:DD:EE:FF",
+        }
+    ]
+
+    with (
+        patch(
+            "custom_components.marstek.scanner.discover_devices",
+            AsyncMock(return_value=devices),
+        ),
+        patch(
+            "custom_components.marstek.scanner.discovery_flow.async_create_flow"
+        ) as mock_create_flow,
+    ):
+        await scanner._async_scan_impl()
+        await scanner._async_scan_impl()
+
+        assert mock_create_flow.call_count == 1
+
+
+async def test_scanner_scan_impl_skips_pending_flow(hass: HomeAssistant):
+    """Test unconfigured discovery skips when a pending flow exists."""
+    scanner = MarstekScanner(hass)
+
+    devices = [
+        {
+            "ip": "5.6.7.8",
+            "ble_mac": "AA:BB:CC:DD:EE:FF",
+        }
+    ]
+
+    pending = [
+        {
+            "context": {
+                "source": "integration_discovery",
+                "unique_id": "aa:bb:cc:dd:ee:ff",
+            },
+            "data": {"ble_mac": "AA:BB:CC:DD:EE:FF"},
+        }
+    ]
+
+    with (
+        patch(
+            "custom_components.marstek.scanner.discover_devices",
+            AsyncMock(return_value=devices),
+        ),
+        patch(
+            "custom_components.marstek.scanner.discovery_flow.async_create_flow"
+        ) as mock_create_flow,
+        patch.object(
+            hass.config_entries.flow,
+            "async_progress_by_handler",
+            return_value=pending,
+        ),
+    ):
+        await scanner._async_scan_impl()
+
         mock_create_flow.assert_not_called()
 
 
@@ -357,6 +462,236 @@ async def test_scanner_find_device_by_ble_mac_device_without_ble_mac(
     result = scanner._find_device_by_ble_mac(devices, "AA:BB:CC:DD:EE:FF", "Test Entry")
 
     assert result is None
+
+
+async def test_scanner_get_configured_macs_ignores_invalid(hass: HomeAssistant) -> None:
+    """Test _get_configured_macs ignores invalid MAC values."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=None,
+        data={
+            "host": "1.2.3.4",
+            "ble_mac": "AA:BB:CC:DD:EE:FF",
+            "mac": 123,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    scanner = MarstekScanner(hass)
+
+    configured = scanner._get_configured_macs()
+    assert "aa:bb:cc:dd:ee:ff" in configured
+
+
+async def test_scanner_prune_unconfigured_cache(hass: HomeAssistant) -> None:
+    """Test pruning unconfigured cache when devices become configured."""
+    scanner = MarstekScanner(hass)
+    scanner._unconfigured_seen = {
+        "aa:bb:cc:dd:ee:ff": scanner._last_scan_time or datetime.now(),
+        "11:22:33:44:55:66": scanner._last_scan_time or datetime.now(),
+    }
+
+    scanner._prune_unconfigured_cache({"aa:bb:cc:dd:ee:ff"})
+
+    assert "aa:bb:cc:dd:ee:ff" not in scanner._unconfigured_seen
+    assert "11:22:33:44:55:66" in scanner._unconfigured_seen
+
+
+async def test_scanner_has_pending_discovery_invalid_flow_mac(
+    hass: HomeAssistant,
+) -> None:
+    """Test pending discovery ignores invalid MACs in flow data."""
+    scanner = MarstekScanner(hass)
+
+    pending = [
+        {
+            "context": {
+                "source": "integration_discovery",
+                "unique_id": None,
+            },
+            "data": {"ble_mac": 123},
+        }
+    ]
+
+    with patch.object(
+        hass.config_entries.flow,
+        "async_progress_by_handler",
+        return_value=pending,
+    ):
+        assert scanner._has_pending_discovery("AA:BB:CC:DD:EE:FF") is False
+
+
+async def test_scanner_has_pending_discovery_non_integration_source(
+    hass: HomeAssistant,
+) -> None:
+    """Test pending discovery ignores non-integration sources."""
+    scanner = MarstekScanner(hass)
+
+    pending = [
+        {
+            "context": {
+                "source": "user",
+                "unique_id": "aa:bb:cc:dd:ee:ff",
+            },
+            "data": {"ble_mac": "AA:BB:CC:DD:EE:FF"},
+        }
+    ]
+
+    with patch.object(
+        hass.config_entries.flow,
+        "async_progress_by_handler",
+        return_value=pending,
+    ):
+        assert scanner._has_pending_discovery("AA:BB:CC:DD:EE:FF") is False
+
+
+async def test_scanner_has_pending_discovery_unique_id_match(
+    hass: HomeAssistant,
+) -> None:
+    """Test pending discovery matches on unique_id."""
+    scanner = MarstekScanner(hass)
+
+    pending = [
+        {
+            "context": {
+                "source": "integration_discovery",
+                "unique_id": "aa:bb:cc:dd:ee:ff",
+            },
+            "data": {"ble_mac": "11:22:33:44:55:66"},
+        }
+    ]
+
+    with patch.object(
+        hass.config_entries.flow,
+        "async_progress_by_handler",
+        return_value=pending,
+    ):
+        assert scanner._has_pending_discovery("AA:BB:CC:DD:EE:FF") is True
+
+
+async def test_scanner_has_pending_discovery_data_match(
+    hass: HomeAssistant,
+) -> None:
+    """Test pending discovery matches on flow data MAC."""
+    scanner = MarstekScanner(hass)
+
+    pending = [
+        {
+            "context": {
+                "source": "integration_discovery",
+                "unique_id": None,
+            },
+            "data": {"ble_mac": "AA:BB:CC:DD:EE:FF"},
+        }
+    ]
+
+    with patch.object(
+        hass.config_entries.flow,
+        "async_progress_by_handler",
+        return_value=pending,
+    ):
+        assert scanner._has_pending_discovery("AA:BB:CC:DD:EE:FF") is True
+
+
+async def test_scanner_should_trigger_unconfigured_invalid(hass: HomeAssistant) -> None:
+    """Test invalid MACs do not trigger unconfigured discovery."""
+    scanner = MarstekScanner(hass)
+
+    assert scanner._should_trigger_unconfigured("") is False
+
+
+async def test_scanner_should_trigger_unconfigured_debounce(hass: HomeAssistant) -> None:
+    """Test unconfigured discovery debounces repeated triggers."""
+    scanner = MarstekScanner(hass)
+
+    assert scanner._should_trigger_unconfigured("AA:BB:CC:DD:EE:FF") is True
+    assert scanner._should_trigger_unconfigured("AA:BB:CC:DD:EE:FF") is False
+
+
+async def test_scanner_trigger_unconfigured_skips_missing_data(
+    hass: HomeAssistant,
+) -> None:
+    """Test unconfigured discovery skips devices without IP or BLE MAC."""
+    scanner = MarstekScanner(hass)
+
+    devices = [
+        {"ip": None, "ble_mac": "AA:BB:CC:DD:EE:FF"},
+        {"ip": "5.6.7.8", "ble_mac": None},
+    ]
+
+    with patch(
+        "custom_components.marstek.scanner.discovery_flow.async_create_flow"
+    ) as mock_create_flow:
+        scanner._trigger_unconfigured_discovery(devices, set())
+
+    mock_create_flow.assert_not_called()
+
+
+async def test_scanner_trigger_unconfigured_skips_configured(
+    hass: HomeAssistant,
+) -> None:
+    """Test unconfigured discovery skips already configured devices."""
+    scanner = MarstekScanner(hass)
+
+    devices = [
+        {"ip": "5.6.7.8", "ble_mac": "AA:BB:CC:DD:EE:FF"},
+    ]
+
+    with patch(
+        "custom_components.marstek.scanner.discovery_flow.async_create_flow"
+    ) as mock_create_flow:
+        scanner._trigger_unconfigured_discovery(devices, {"aa:bb:cc:dd:ee:ff"})
+
+    mock_create_flow.assert_not_called()
+
+
+async def test_scanner_trigger_unconfigured_invalid_mac_type(
+    hass: HomeAssistant,
+) -> None:
+    """Test unconfigured discovery skips non-string MAC values."""
+    scanner = MarstekScanner(hass)
+
+    devices = [
+        {"ip": "5.6.7.8", "ble_mac": 123},
+    ]
+
+    with patch(
+        "custom_components.marstek.scanner.discovery_flow.async_create_flow"
+    ) as mock_create_flow:
+        scanner._trigger_unconfigured_discovery(devices, set())
+
+    mock_create_flow.assert_not_called()
+
+
+async def test_scanner_scan_impl_matched_device_missing_ip(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test _async_scan_impl skips IP change when discovered IP is missing."""
+    mock_config_entry.add_to_hass(hass)
+    mock_config_entry.mock_state(hass, ConfigEntryState.LOADED)
+
+    scanner = MarstekScanner(hass)
+
+    with (
+        patch(
+            "custom_components.marstek.scanner.discover_devices",
+            AsyncMock(
+                return_value=[
+                    {
+                        "ip": None,
+                        "ble_mac": "AA:BB:CC:DD:EE:FF",
+                        "device_type": "Venus",
+                    }
+                ]
+            ),
+        ),
+        patch(
+            "custom_components.marstek.scanner.discovery_flow.async_create_flow"
+        ) as mock_create_flow,
+    ):
+        await scanner._async_scan_impl()
+
+        mock_create_flow.assert_not_called()
 
 
 async def test_scanner_scan_impl_none_devices(hass: HomeAssistant):

@@ -28,6 +28,9 @@ SCAN_INTERVAL = timedelta(minutes=10)
 # Minimum time between event-triggered scans (debounce)
 MIN_SCAN_INTERVAL = timedelta(seconds=30)
 
+# Minimum time between discovery flows for unconfigured devices
+UNCONFIGURED_DISCOVERY_DEBOUNCE = timedelta(hours=1)
+
 
 class MarstekScanner:
     """Scanner for Marstek devices that detects IP address changes."""
@@ -40,6 +43,7 @@ class MarstekScanner:
         self._track_interval: CALLBACK_TYPE | None = None
         self._scan_task: asyncio.Task[None] | None = None
         self._last_scan_time: datetime | None = None
+        self._unconfigured_seen: dict[str, datetime] = {}
 
     @classmethod
     @callback
@@ -239,6 +243,11 @@ class MarstekScanner:
                         entry.title,
                         stored_ip,
                     )
+
+            # Trigger discovery flows for unconfigured devices
+            configured_macs = self._get_configured_macs()
+            self._prune_unconfigured_cache(configured_macs)
+            self._trigger_unconfigured_discovery(devices, configured_macs)
         except Exception as err:  # noqa: BLE001 - Scanner runs in background, catch all errors
             _LOGGER.debug("Scanner discovery failed: %s", err)
 
@@ -261,3 +270,108 @@ class MarstekScanner:
                     )
                     return device
         return None
+
+    def _get_configured_macs(self) -> set[str]:
+        """Collect all configured MACs for this integration."""
+        configured: set[str] = set()
+        for entry in self._hass.config_entries.async_entries(DOMAIN):
+            for key in ("ble_mac", "mac", "wifi_mac"):
+                value = entry.data.get(key)
+                if not value:
+                    continue
+                try:
+                    configured.add(format_mac(value))
+                except (TypeError, ValueError):
+                    continue
+        return configured
+
+    def _prune_unconfigured_cache(self, configured_macs: set[str]) -> None:
+        """Drop cached unconfigured devices that are now configured."""
+        for mac in list(self._unconfigured_seen):
+            if mac in configured_macs:
+                self._unconfigured_seen.pop(mac, None)
+
+    def _has_pending_discovery(self, ble_mac: str) -> bool:
+        """Return True if a discovery flow is already in progress for this device."""
+        try:
+            formatted = format_mac(ble_mac)
+        except (TypeError, ValueError):
+            return False
+
+        flows = self._hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+        for flow in flows:
+            context = flow.get("context", {})
+            if context.get("source") != config_entries.SOURCE_INTEGRATION_DISCOVERY:
+                continue
+            if context.get("unique_id") == formatted:
+                return True
+            data = flow.get("data", {})
+            flow_ble_mac = data.get("ble_mac")
+            if flow_ble_mac:
+                try:
+                    if format_mac(flow_ble_mac) == formatted:
+                        return True
+                except (TypeError, ValueError):
+                    continue
+        return False
+
+    def _should_trigger_unconfigured(self, ble_mac: str) -> bool:
+        """Return True if we should trigger a discovery flow for this device."""
+        if not ble_mac:
+            return False
+        try:
+            formatted = format_mac(ble_mac)
+        except (TypeError, ValueError):
+            return False
+
+        if self._has_pending_discovery(formatted):
+            return False
+
+        now = datetime.now()
+        last_seen = self._unconfigured_seen.get(formatted)
+        if last_seen and (now - last_seen) < UNCONFIGURED_DISCOVERY_DEBOUNCE:
+            return False
+
+        self._unconfigured_seen[formatted] = now
+        return True
+
+    def _trigger_unconfigured_discovery(
+        self, devices: list[dict[str, Any]], configured_macs: set[str]
+    ) -> None:
+        """Create discovery flows for devices not yet configured."""
+        for device in devices:
+            device_ip = device.get("ip")
+            device_ble_mac = device.get("ble_mac")
+            if not device_ip or not device_ble_mac:
+                continue
+
+            try:
+                formatted_mac = format_mac(device_ble_mac)
+            except (TypeError, ValueError):
+                continue
+
+            if formatted_mac in configured_macs:
+                continue
+
+            if not self._should_trigger_unconfigured(formatted_mac):
+                continue
+
+            _LOGGER.info(
+                "Scanner discovered unconfigured device %s at %s",
+                formatted_mac,
+                device_ip,
+            )
+            discovery_flow.async_create_flow(
+                self._hass,
+                DOMAIN,
+                context={"source": config_entries.SOURCE_INTEGRATION_DISCOVERY},
+                data={
+                    "ip": device_ip,
+                    "ble_mac": device_ble_mac,
+                    "device_type": device.get("device_type"),
+                    "version": device.get("version"),
+                    "wifi_name": device.get("wifi_name"),
+                    "wifi_mac": device.get("wifi_mac"),
+                    "mac": device.get("mac"),
+                },
+            )

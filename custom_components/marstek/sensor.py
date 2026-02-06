@@ -31,6 +31,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import MarstekConfigEntry
 from .coordinator import MarstekDataUpdateCoordinator
+from .const import OPERATING_MODES
 from .device_info import build_device_info, get_device_identifier
 
 _LOGGER = logging.getLogger(__name__)
@@ -127,6 +128,8 @@ SENSORS: tuple[MarstekSensorEntityDescription, ...] = (
     MarstekSensorEntityDescription(
         key="device_mode",
         translation_key="device_mode",
+        device_class=SensorDeviceClass.ENUM,
+        options=OPERATING_MODES,
         value_fn=lambda coordinator, _info, _entry: (
             _value_from_data("device_mode", coordinator.data or {})
         ),

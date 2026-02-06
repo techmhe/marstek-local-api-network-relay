@@ -81,6 +81,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
     discovered_devices: list[dict[str, Any]]
     _discovered_ip: str | None = None
+    _discovered_port: int | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -325,6 +326,9 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, discovery_info: DhcpServiceInfo
     ) -> config_entries.ConfigFlowResult:
         """Handle DHCP discovery to update IP address when it changes (mik-laj feedback)."""
+        if not discovery_info.macaddress or not discovery_info.ip:
+            return self.async_abort(reason="invalid_discovery_info")
+
         mac = format_mac(discovery_info.macaddress)
         _LOGGER.info(
             "DHCP discovery triggered: MAC=%s, IP=%s, Hostname=%s",
@@ -333,40 +337,12 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             discovery_info.hostname,
         )
 
-        # Use BLE-MAC or MAC as unique_id (beardhatcode & mik-laj feedback)
-        # Try to find existing entry by MAC address
-        for entry in self._async_current_entries(include_ignore=False):
-            entry_mac = (
-                entry.data.get("ble_mac")
-                or entry.data.get("mac")
-                or entry.data.get("wifi_mac")
-            )
-            if entry_mac and format_mac(entry_mac) == mac:
-                # Found existing entry, update IP if it changed
-                if entry.data.get(CONF_HOST) != discovery_info.ip:
-                    _LOGGER.info(
-                        "DHCP discovery: Device %s IP changed from %s to %s, updating config entry",
-                        mac,
-                        entry.data.get(CONF_HOST),
-                        discovery_info.ip,
-                    )
-                    self.hass.config_entries.async_update_entry(
-                        entry,
-                        data={**entry.data, CONF_HOST: discovery_info.ip},
-                    )
-                    # Reload the entry to use new IP
-                    self.hass.config_entries.async_schedule_reload(entry.entry_id)
-                else:
-                    _LOGGER.debug(
-                        "DHCP discovery: Device %s IP unchanged (%s)",
-                        mac,
-                        discovery_info.ip,
-                    )
-                return self.async_abort(reason="already_configured")
+        await self.async_set_unique_id(mac)
+        self._discovered_ip = discovery_info.ip
+        self._discovered_port = DEFAULT_UDP_PORT
 
-        # No existing entry found, continue with user flow
-        _LOGGER.debug("DHCP discovery: No existing entry found for MAC %s", mac)
-        return await self.async_step_user()
+        # Use shared discovery handler to update existing entries or confirm new ones
+        return await self._async_handle_discovery_with_unique_id()
 
     async def async_step_integration_discovery(
         self, discovery_info: dict[str, Any]
@@ -375,15 +351,87 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         discovered_ip = discovery_info.get("ip")
         discovered_ble_mac = discovery_info.get("ble_mac")
 
-        if not discovered_ble_mac:
+        if not discovered_ble_mac or not discovered_ip:
             return self.async_abort(reason="invalid_discovery_info")
 
         # Set unique_id using BLE-MAC
         await self.async_set_unique_id(format_mac(discovered_ble_mac))
         self._discovered_ip = discovered_ip
+        self._discovered_port = int(discovery_info.get("port", DEFAULT_UDP_PORT))
 
         # Handle discovery with unique_id (updates existing entries or creates new)
         return await self._async_handle_discovery_with_unique_id()
+
+    async def async_step_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Confirm discovery and create entry."""
+        errors: dict[str, str] = {}
+
+        if self._discovered_ip is None:
+            return await self.async_step_manual(errors={"base": "invalid_discovery_info"})
+
+        discovered_port = self._discovered_port or DEFAULT_UDP_PORT
+
+        if user_input is not None:
+            host = str(user_input.get(CONF_HOST, ""))
+            port = int(user_input.get(CONF_PORT, DEFAULT_UDP_PORT))
+
+            try:
+                device_info = await get_device_info(host=host, port=port)
+
+                if not device_info:
+                    errors["base"] = "cannot_connect"
+                else:
+                    unique_id_mac = (
+                        device_info.get("ble_mac")
+                        or device_info.get("mac")
+                        or device_info.get("wifi_mac")
+                    )
+                    if not unique_id_mac:
+                        errors["base"] = "invalid_discovery_info"
+                    else:
+                        formatted_unique_id = format_mac(unique_id_mac)
+                        if self.unique_id and self.unique_id != formatted_unique_id:
+                            errors["base"] = "unique_id_mismatch"
+                        else:
+                            await self.async_set_unique_id(formatted_unique_id)
+                            self._abort_if_unique_id_configured()
+
+                            return self.async_create_entry(
+                                title=f"Marstek {device_info.get('device_type', 'Device')}",
+                                data={
+                                    CONF_HOST: host,
+                                    CONF_PORT: port,
+                                    CONF_MAC: device_info.get("mac"),
+                                    "device_type": device_info.get("device_type"),
+                                    "version": device_info.get("version"),
+                                    "wifi_name": device_info.get("wifi_name"),
+                                    "wifi_mac": device_info.get("wifi_mac"),
+                                    "ble_mac": device_info.get("ble_mac"),
+                                    "model": device_info.get("model"),
+                                    "firmware": device_info.get("firmware"),
+                                },
+                            )
+
+            except (ConnectionError, OSError, TimeoutError):
+                errors["base"] = "cannot_connect"
+            except ValueError:
+                errors["base"] = "invalid_discovery_info"
+
+        return self.async_show_form(
+            step_id="confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST, default=self._discovered_ip): cv.string,
+                    vol.Required(CONF_PORT, default=discovered_port): vol.All(
+                        vol.Coerce(int), vol.Range(min=1, max=65535)
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders={"host": self._discovered_ip},
+        )
 
     async def async_step_reauth(
         self, entry_data: dict[str, Any]
@@ -504,9 +552,12 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self,
     ) -> config_entries.ConfigFlowResult:
         """Handle any discovery with a unique id (similar to Yeelight pattern)."""
+        if not self.unique_id or not self._discovered_ip:
+            return self.async_abort(reason="invalid_discovery_info")
+
         for entry in self._async_current_entries(include_ignore=False):
             # Check if unique_id matches
-            if entry.unique_id != self.unique_id:
+            if not self._entry_matches_unique_id(entry):
                 continue
 
             reload = entry.state == ConfigEntryState.SETUP_RETRY
@@ -528,8 +579,26 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.hass.config_entries.async_schedule_reload(entry.entry_id)
             return self.async_abort(reason="already_configured")
 
-        # No existing entry found, continue with user flow
-        return await self.async_step_user()
+        # No existing entry found, confirm discovery
+        return await self.async_step_confirm()
+
+    def _entry_matches_unique_id(self, entry: config_entries.ConfigEntry) -> bool:
+        """Return True if entry matches current flow unique id."""
+        if entry.unique_id and entry.unique_id == self.unique_id:
+            return True
+
+        if not self.unique_id:
+            return False
+
+        entry_mac = (
+            entry.data.get("ble_mac")
+            or entry.data.get("mac")
+            or entry.data.get("wifi_mac")
+        )
+        if entry_mac and format_mac(entry_mac) == self.unique_id:
+            return True
+
+        return False
 
     @staticmethod
     def async_get_options_flow(

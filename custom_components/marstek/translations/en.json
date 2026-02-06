@@ -23,6 +23,18 @@
           "port": "UDP port (default: 30000)"
         }
       },
+      "confirm": {
+        "title": "Confirm device",
+        "description": "A Marstek device was discovered at {host}. Confirm the address or adjust it before adding.",
+        "data": {
+          "host": "IP address",
+          "port": "Port"
+        },
+        "data_description": {
+          "host": "IP address of your Marstek device",
+          "port": "UDP port (default: 30000)"
+        }
+      },
       "reauth_confirm": {
         "title": "Reconnect Marstek Device",
         "description": "The device at {host} is not responding. Please verify the IP address or enter a new one if it has changed.",
@@ -51,6 +63,7 @@
       "device_not_found": "Device not found at the specified IP address",
       "discovery_failed": "Failed to discover devices. Please check your network connection and try again.",
       "invalid_discovery_info": "Invalid discovery information received from the device",
+      "unique_id_mismatch": "The device at this address does not match the discovered device",
       "all_devices_configured": "All discovered devices are already configured. Enter an IP address manually or ensure additional devices are on the network."
     },
     "abort": {

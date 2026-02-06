@@ -44,8 +44,8 @@ rules:
     status: done
     comment: _async_handle_discovery_with_unique_id updates config entry IP when device is rediscovered via scanner or DHCP
   discovery:
-    status: exempt
-    comment: Integration uses UDP broadcast discovery via async_step_user, not standard discovery methods
+    status: done
+    comment: Devices are discoverable via DHCP and integration discovery confirmation flow
   docs-data-update: done
   docs-examples: done
   docs-known-limitations: done
