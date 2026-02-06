@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import re
 import traceback
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data

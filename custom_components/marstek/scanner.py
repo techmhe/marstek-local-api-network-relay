@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import suppress
 from datetime import datetime, timedelta
-import logging
 from typing import Any, ClassVar, Self
 
 from homeassistant import config_entries
@@ -57,7 +57,7 @@ class MarstekScanner:
     @callback
     def async_reset(cls) -> None:
         """Reset the singleton scanner instance.
-        
+
         Should be called when the last config entry is unloaded to ensure
         clean state on reload and avoid stale references during testing.
         """
@@ -89,7 +89,7 @@ class MarstekScanner:
             self._track_interval()
             self._track_interval = None
             _LOGGER.debug("Marstek scanner stopped")
-        
+
         # Cancel any running scan task
         if self._scan_task is not None and not self._scan_task.done():
             self._scan_task.cancel()
@@ -104,7 +104,7 @@ class MarstekScanner:
         if self._scan_task is not None and not self._scan_task.done():
             _LOGGER.debug("Previous scan still running, skipping")
             return
-        
+
         # Execute scan in background task (non-blocking)
         self._scan_task = self._hass.async_create_task(self._async_scan_impl())
         self._last_scan_time = datetime.now()
@@ -112,10 +112,10 @@ class MarstekScanner:
     @callback
     def async_request_scan(self) -> bool:
         """Request an immediate scan (event-driven, e.g., on connection failure).
-        
+
         This allows the coordinator to trigger a scan when it detects connection
         failures, enabling faster IP change detection without aggressive polling.
-        
+
         Returns:
             True if scan was triggered, False if debounced (too soon after last scan)
         """
@@ -129,7 +129,7 @@ class MarstekScanner:
                     MIN_SCAN_INTERVAL,
                 )
                 return False
-        
+
         _LOGGER.info("Immediate scan requested (connection failure detected)")
         self.async_scan()
         return True
@@ -248,7 +248,7 @@ class MarstekScanner:
             configured_macs = self._get_configured_macs()
             self._prune_unconfigured_cache(configured_macs)
             self._trigger_unconfigured_discovery(devices, configured_macs)
-        except Exception as err:  # noqa: BLE001 - Scanner runs in background, catch all errors
+        except Exception as err:
             _LOGGER.debug("Scanner discovery failed: %s", err)
 
     def _find_device_by_ble_mac(

@@ -7,18 +7,12 @@ from malformed requests. See validators.py for validation rules.
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
-import ipaddress
 import json
 import logging
 import socket
 import time
-from typing import Any
-
-try:
-    import psutil
-except Exception:  # noqa: BLE001 - optional dependency
-    psutil = None
+from contextlib import suppress
+from typing import Any, cast
 
 from .command_builder import (
     discover,
@@ -39,9 +33,13 @@ from .data_parser import (
     parse_pv_status_response,
     parse_wifi_status_response,
 )
+from .network import PsutilModule, get_broadcast_addresses
 from .validators import ValidationError, validate_json_message
 
 _LOGGER = logging.getLogger(__name__)
+
+_PSUTIL_AUTO = object()
+psutil: PsutilModule | object | None = _PSUTIL_AUTO
 
 # Rate limiting - minimum interval between requests to same device
 MIN_REQUEST_INTERVAL: float = 0.3  # 300ms minimum between requests to same IP
@@ -64,7 +62,7 @@ def _new_command_stats() -> dict[str, Any]:
 
 class MarstekUDPClient:
     """UDP client for communicating with Marstek devices.
-    
+
     Features:
     - Request validation before transmission (see validators.py)
     - Rate limiting per device IP to prevent overwhelming devices
@@ -87,16 +85,16 @@ class MarstekUDPClient:
         self._local_send_ip: str = "0.0.0.0"
         self._polling_paused: dict[str, bool] = {}
         self._polling_lock: asyncio.Lock = asyncio.Lock()
-        
+
         # Rate limiting: track last request time per device IP
         self._last_request_time: dict[str, float] = {}
         self._rate_limit_locks: dict[str, asyncio.Lock] = {}  # Per-IP locks
         self._rate_limit_meta_lock: asyncio.Lock = asyncio.Lock()  # For creating per-IP locks
-        
+
         # Cleanup: max tracked IPs before cleanup
         self._max_tracked_ips: int = 100
         self._rate_limit_cleanup_threshold: float = 300.0  # 5 minutes
-        
+
         # Response cache cleanup settings
         self._response_cache_max_size: int = 50
         self._response_cache_max_age: float = 30.0  # 30 seconds
@@ -181,7 +179,7 @@ class MarstekUDPClient:
         if self._socket:
             self._socket.close()
             self._socket = None
-        
+
         # Clear caches to prevent memory retention after cleanup
         self._pending_requests.clear()
         self._response_cache.clear()
@@ -192,37 +190,6 @@ class MarstekUDPClient:
         self._command_stats.clear()
         self._command_stats_by_ip.clear()
 
-    def _get_broadcast_addresses(self) -> list[str]:
-        addresses = {"255.255.255.255"}
-        if psutil is not None:
-            try:
-                for addrs in psutil.net_if_addrs().values():
-                    for addr in addrs:
-                        if addr.family == socket.AF_INET and not addr.address.startswith("127."):
-                            if getattr(addr, "broadcast", None):
-                                addresses.add(addr.broadcast)
-                            elif getattr(addr, "netmask", None):
-                                try:
-                                    network = ipaddress.IPv4Network(
-                                        f"{addr.address}/{addr.netmask}", strict=False
-                                    )
-                                    addresses.add(str(network.broadcast_address))
-                                except (ValueError, OSError):
-                                    continue
-            except OSError as err:
-                _LOGGER.warning("Failed to obtain network interfaces: %s", err)
-            try:
-                local_ips = {
-                    addr.address
-                    for addrs in psutil.net_if_addrs().values()
-                    for addr in addrs
-                    if addr.family == socket.AF_INET
-                }
-                addresses -= local_ips
-            except OSError:
-                pass
-        return list(addresses)
-
     def _is_cache_valid(self) -> bool:
         if self._discovery_cache is None:
             return False
@@ -232,6 +199,17 @@ class MarstekUDPClient:
     def clear_discovery_cache(self) -> None:
         self._discovery_cache = None
         self._cache_timestamp = 0
+
+    def _get_broadcast_addresses(self) -> list[str]:
+        if psutil is _PSUTIL_AUTO:
+            return get_broadcast_addresses(logger=_LOGGER)
+        if psutil is None:
+            return get_broadcast_addresses(logger=_LOGGER, allow_import=False)
+        return get_broadcast_addresses(
+            psutil_module=cast(PsutilModule, psutil),
+            logger=_LOGGER,
+            allow_import=False,
+        )
 
     async def _get_rate_limit_lock(self, target_ip: str) -> asyncio.Lock:
         """Get or create a per-IP rate limit lock."""
@@ -244,46 +222,46 @@ class MarstekUDPClient:
         """Remove stale entries from rate limit tracking to prevent memory leaks."""
         loop = self._loop or asyncio.get_running_loop()
         current_time = loop.time()
-        
+
         async with self._rate_limit_meta_lock:
             if len(self._last_request_time) <= self._max_tracked_ips:
                 return
-            
+
             # Remove entries older than cleanup threshold
             stale_ips = [
                 ip for ip, last_time in self._last_request_time.items()
                 if current_time - last_time > self._rate_limit_cleanup_threshold
             ]
-            
+
             for ip in stale_ips:
                 self._last_request_time.pop(ip, None)
                 self._rate_limit_locks.pop(ip, None)
                 self._command_stats_by_ip.pop(ip, None)
-            
+
             if stale_ips:
                 _LOGGER.debug("Cleaned up rate limit tracking for %d stale IPs", len(stale_ips))
 
     def _cleanup_response_cache(self) -> None:
         """Remove stale entries from response cache to prevent memory leaks.
-        
+
         Called periodically during response listening to prevent unbounded growth
         from late responses or orphaned cache entries.
         """
         if not self._response_cache:
             return
-            
+
         loop = self._loop or asyncio.get_running_loop()
         current_time = loop.time()
-        
+
         # Remove entries older than max age
         stale_ids = [
             request_id for request_id, cached in self._response_cache.items()
             if current_time - cached.get("timestamp", 0) > self._response_cache_max_age
         ]
-        
+
         for request_id in stale_ids:
             self._response_cache.pop(request_id, None)
-        
+
         # If still too large, remove oldest entries
         if len(self._response_cache) > self._response_cache_max_size:
             sorted_entries = sorted(
@@ -294,27 +272,30 @@ class MarstekUDPClient:
             to_remove = len(self._response_cache) - self._response_cache_max_size // 2
             for request_id, _ in sorted_entries[:to_remove]:
                 self._response_cache.pop(request_id, None)
-            
+
             if to_remove > 0:
-                _LOGGER.debug("Cleaned up %d stale response cache entries", to_remove + len(stale_ids))
+                _LOGGER.debug(
+                    "Cleaned up %d stale response cache entries",
+                    to_remove + len(stale_ids),
+                )
 
     async def _enforce_rate_limit(self, target_ip: str) -> None:
         """Enforce minimum interval between requests to the same device.
-        
+
         This prevents overwhelming Marstek devices which can be sensitive
         to rapid request bursts. Uses per-IP locks to avoid blocking
         requests to different devices.
         """
         loop = self._loop or asyncio.get_running_loop()
-        
+
         # Get per-IP lock (creates one if needed)
         ip_lock = await self._get_rate_limit_lock(target_ip)
-        
+
         async with ip_lock:
             current_time = loop.time()
             last_time = self._last_request_time.get(target_ip, 0)
             elapsed = current_time - last_time
-            
+
             if elapsed < MIN_REQUEST_INTERVAL:
                 wait_time = MIN_REQUEST_INTERVAL - elapsed
                 _LOGGER.debug(
@@ -323,10 +304,10 @@ class MarstekUDPClient:
                     target_ip,
                 )
                 await asyncio.sleep(wait_time)
-            
+
             # Update last request time
             self._last_request_time[target_ip] = loop.time()
-        
+
         # Periodically cleanup stale entries
         if len(self._last_request_time) > self._max_tracked_ips:
             await self._cleanup_rate_limit_tracking()
@@ -335,11 +316,11 @@ class MarstekUDPClient:
         if not self._socket:
             await self.async_setup()
         assert self._socket is not None
-        
+
         # Enforce rate limiting for non-broadcast addresses
         if target_ip not in ("255.255.255.255",) and not target_ip.endswith(".255"):
             await self._enforce_rate_limit(target_ip)
-        
+
         data = message.encode("utf-8")
         self._socket.sendto(data, (target_ip, target_port))
         _LOGGER.debug("Send: %s:%d | %s", target_ip, target_port, message)
@@ -355,7 +336,7 @@ class MarstekUDPClient:
         validate: bool = True,
     ) -> dict[str, Any]:
         """Send a request message and wait for response.
-        
+
         Args:
             message: JSON command string to send
             target_ip: Target device IP address
@@ -364,10 +345,10 @@ class MarstekUDPClient:
             quiet_on_timeout: If True, don't log warnings on timeout
             validate: If True, validate message before sending (default True).
                 Set to False only if message was already validated.
-        
+
         Returns:
             Response dictionary from device
-            
+
         Raises:
             ValidationError: If message validation fails and validate=True
             TimeoutError: If no response received within timeout
@@ -389,7 +370,7 @@ class MarstekUDPClient:
                         method_name = json.loads(message).get("method", "unknown")
                 except (json.JSONDecodeError, TypeError, AttributeError):
                     pass
-                
+
                 _LOGGER.error(
                     "Request validation failed for %s:%d [method=%s, field=%s]: %s",
                     target_ip,
@@ -479,7 +460,7 @@ class MarstekUDPClient:
                     future = self._pending_requests.pop(request_id, None)
                     if future and not future.done():
                         future.set_result(response)
-                
+
                 # Periodically cleanup response cache to prevent memory leaks
                 cleanup_counter += 1
                 if cleanup_counter >= 10:  # Every 10 responses
@@ -491,17 +472,23 @@ class MarstekUDPClient:
                 _LOGGER.error("Error receiving UDP response: %s", err)
                 await asyncio.sleep(1)
 
-    async def send_broadcast_request(self, message: str, timeout: float = DISCOVERY_TIMEOUT, *, validate: bool = True) -> list[dict[str, Any]]:
+    async def send_broadcast_request(
+        self,
+        message: str,
+        timeout: float = DISCOVERY_TIMEOUT,
+        *,
+        validate: bool = True,
+    ) -> list[dict[str, Any]]:
         """Send a broadcast message and collect all responses within timeout.
-        
+
         Args:
             message: JSON command string to broadcast
             timeout: Time to wait for responses in seconds
             validate: If True, validate message before sending (default True)
-            
+
         Returns:
             List of response dictionaries from devices
-            
+
         Raises:
             ValidationError: If message validation fails and validate=True
         """
@@ -629,17 +616,17 @@ class MarstekUDPClient:
         validate: bool = True,
     ) -> dict[str, Any]:
         """Send request while pausing polling to avoid concurrent traffic.
-        
+
         Args:
             message: JSON command string to send
             target_ip: Target device IP address
             target_port: Target device port
             timeout: Response timeout in seconds
             validate: If True, validate message before sending (default True)
-            
+
         Returns:
             Response dictionary from device
-            
+
         Raises:
             ValidationError: If message validation fails and validate=True
         """
@@ -665,10 +652,10 @@ class MarstekUDPClient:
         previous_status: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Get complete device status including battery, PV, WiFi, and EM data.
-        
+
         Calls ES.GetMode for device mode, ES.GetStatus for battery power/status,
         and optionally PV.GetStatus, Wifi.GetStatus, EM.GetStatus, Bat.GetStatus.
-        
+
         Args:
             device_ip: IP address of the device
             port: UDP port (default: DEFAULT_UDP_PORT)
@@ -678,9 +665,9 @@ class MarstekUDPClient:
             include_em: Whether to include Energy Meter/CT data
             include_bat: Whether to include detailed battery data
             delay_between_requests: Delay between requests in seconds
-            previous_status: Previous device status to preserve values when 
+            previous_status: Previous device status to preserve values when
                 individual requests fail (prevents intermittent "Unknown" states)
-            
+
         Returns:
             Dictionary with complete device status
         """
@@ -690,12 +677,12 @@ class MarstekUDPClient:
         wifi_status_data: dict[str, Any] | None = None
         em_status_data: dict[str, Any] | None = None
         bat_status_data: dict[str, Any] | None = None
-        
+
         # Track if we've made a request (to know when to add delay)
         made_request = False
         # Track if any request returned data
         has_fresh_data = False
-        
+
         # Get ES mode (device_mode, ongrid_power) - always fetched (fast tier)
         try:
             es_mode_command = get_es_mode(0)
@@ -713,7 +700,7 @@ class MarstekUDPClient:
             )
         except (TimeoutError, OSError, ValueError) as err:
             _LOGGER.debug("ES.GetMode failed for %s: %s", device_ip, err)
-        
+
         # Get ES status (battery_power, battery_status) - always fetched (fast tier)
         if made_request:
             await asyncio.sleep(delay_between_requests)
@@ -734,7 +721,7 @@ class MarstekUDPClient:
             )
         except (TimeoutError, OSError, ValueError) as err:
             _LOGGER.debug("ES.GetStatus failed for %s: %s", device_ip, err)
-        
+
         # Get EM status (CT/energy meter) - always fetched (fast tier)
         if include_em:
             if made_request:
@@ -755,7 +742,7 @@ class MarstekUDPClient:
                 )
             except (TimeoutError, OSError, ValueError) as err:
                 _LOGGER.debug("EM.GetStatus failed for %s: %s", device_ip, err)
-        
+
         # Get PV status if requested (medium tier)
         if include_pv:
             if made_request:
@@ -780,7 +767,7 @@ class MarstekUDPClient:
                 _LOGGER.debug(
                     "PV.GetStatus failed for %s: %s", device_ip, err
                 )
-        
+
         # Get WiFi status (slow tier - RSSI signal strength)
         if include_wifi:
             if made_request:
@@ -801,7 +788,7 @@ class MarstekUDPClient:
                 )
             except (TimeoutError, OSError, ValueError) as err:
                 _LOGGER.debug("Wifi.GetStatus failed for %s: %s", device_ip, err)
-        
+
         # Get detailed battery status (slow tier - temperature, charge flags)
         if include_bat:
             if made_request:
@@ -822,7 +809,7 @@ class MarstekUDPClient:
                 )
             except (TimeoutError, OSError, ValueError) as err:
                 _LOGGER.debug("Bat.GetStatus failed for %s: %s", device_ip, err)
-        
+
         # Merge data (ES.GetStatus has priority for battery data)
         # Pass previous_status to preserve values when individual requests fail
         loop = self._loop or asyncio.get_running_loop()

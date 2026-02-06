@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
-from typing import Any, Callable, cast
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, cast
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -24,14 +25,13 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-
 from . import MarstekConfigEntry
-from .coordinator import MarstekDataUpdateCoordinator
 from .const import OPERATING_MODES
+from .coordinator import MarstekDataUpdateCoordinator
 from .device_info import build_device_info, get_device_identifier
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,7 +41,14 @@ _LOGGER = logging.getLogger(__name__)
 class MarstekSensorEntityDescription(SensorEntityDescription):  # type: ignore[misc]
     """Marstek sensor entity description."""
 
-    value_fn: Callable[[MarstekDataUpdateCoordinator, dict[str, Any], ConfigEntry | None], StateType]
+    value_fn: Callable[
+        [
+            MarstekDataUpdateCoordinator,
+            dict[str, Any],
+            ConfigEntry | None,
+        ],
+        StateType,
+    ]
     exists_fn: Callable[[dict[str, Any]], bool] = lambda data: True
 
 

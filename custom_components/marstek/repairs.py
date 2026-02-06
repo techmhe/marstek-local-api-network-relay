@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import voluptuous as vol
-
 from homeassistant import data_entry_flow
 from homeassistant.components.repairs import RepairsFlow
 from homeassistant.const import CONF_HOST, CONF_PORT
@@ -27,7 +26,7 @@ class CannotConnectRepairFlow(RepairsFlow):
         entry_id_raw = self.data.get("entry_id") if self.data else None
         if not entry_id_raw or not isinstance(entry_id_raw, str):
             return self.async_abort(reason="missing_config")
-        
+
         entry_id: str = entry_id_raw
 
         entry = self.hass.config_entries.async_get_entry(entry_id)

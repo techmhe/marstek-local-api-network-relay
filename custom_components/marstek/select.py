@@ -3,21 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-import logging
 from typing import Any
-
-from .pymarstek import MarstekUDPClient, build_command
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
-
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import MarstekConfigEntry
 from .const import (
@@ -32,6 +29,7 @@ from .const import (
 from .coordinator import MarstekDataUpdateCoordinator
 from .device_info import build_device_info, get_device_identifier
 from .mode_config import build_mode_config
+from .pymarstek import MarstekUDPClient, build_command
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -198,7 +196,10 @@ class MarstekOperatingModeSelect(
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="mode_change_failed",
-                    translation_placeholders={"mode": option, "error": last_error or "Unknown error"},
+                    translation_placeholders={
+                        "mode": option,
+                        "error": last_error or "Unknown error",
+                    },
                 )
 
             # Request coordinator refresh to update state
@@ -207,4 +208,4 @@ class MarstekOperatingModeSelect(
         finally:
             await self._udp_client.resume_polling(host)
 
-    
+

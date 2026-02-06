@@ -29,14 +29,14 @@ _request_id = 0
 
 def get_next_request_id() -> int:
     """Get the next request identifier."""
-    global _request_id  # noqa: PLW0603 - internal counter
+    global _request_id
     _request_id += 1
     return _request_id
 
 
 def reset_request_id() -> None:
     """Reset the request identifier counter."""
-    global _request_id  # noqa: PLW0603 - internal counter
+    global _request_id
     _request_id = 0
 
 
@@ -44,16 +44,16 @@ def build_command(
     method: str, params: dict[str, Any] | None = None, *, validate: bool = True
 ) -> str:
     """Construct a JSON command payload.
-    
+
     Args:
         method: API method name (e.g., "ES.GetStatus")
         params: Optional parameters dictionary
         validate: Whether to validate the command (default True). Only set to
             False if validation was already performed upstream.
-    
+
     Returns:
         JSON string of the command
-        
+
     Raises:
         ValidationError: If command validation fails and validate=True
     """
@@ -62,14 +62,14 @@ def build_command(
         "method": method,
         "params": params or {},
     }
-    
+
     if validate:
         try:
             validate_command(command)
         except ValidationError as err:
             _LOGGER.error("Command validation failed: %s", err.message)
             raise
-    
+
     return json.dumps(command)
 
 
@@ -80,13 +80,13 @@ def discover() -> str:
 
 def get_battery_status(device_id: int = 0) -> str:
     """Create a battery status command.
-    
+
     Args:
         device_id: Device identifier (0-255)
-        
+
     Returns:
         JSON command string
-        
+
     Raises:
         ValidationError: If device_id is invalid
     """
@@ -96,13 +96,13 @@ def get_battery_status(device_id: int = 0) -> str:
 
 def get_es_status(device_id: int = 0) -> str:
     """Create an ES status command.
-    
+
     Args:
         device_id: Device identifier (0-255)
-        
+
     Returns:
         JSON command string
-        
+
     Raises:
         ValidationError: If device_id is invalid
     """
@@ -112,13 +112,13 @@ def get_es_status(device_id: int = 0) -> str:
 
 def get_es_mode(device_id: int = 0) -> str:
     """Create an ES mode command.
-    
+
     Args:
         device_id: Device identifier (0-255)
-        
+
     Returns:
         JSON command string
-        
+
     Raises:
         ValidationError: If device_id is invalid
     """
@@ -128,13 +128,13 @@ def get_es_mode(device_id: int = 0) -> str:
 
 def get_pv_status(device_id: int = 0) -> str:
     """Create a PV status command.
-    
+
     Args:
         device_id: Device identifier (0-255)
-        
+
     Returns:
         JSON command string
-        
+
     Raises:
         ValidationError: If device_id is invalid
     """
@@ -176,13 +176,13 @@ def set_es_mode_manual_discharge(device_id: int = 0, power: int = 1300) -> str:
 
 def get_wifi_status(device_id: int = 0) -> str:
     """Create a WiFi status command.
-    
+
     Args:
         device_id: Device identifier (0-255)
-        
+
     Returns:
         JSON command string
-        
+
     Raises:
         ValidationError: If device_id is invalid
     """
@@ -192,13 +192,13 @@ def get_wifi_status(device_id: int = 0) -> str:
 
 def get_em_status(device_id: int = 0) -> str:
     """Create an Energy Meter (CT) status command.
-    
+
     Args:
         device_id: Device identifier (0-255)
-        
+
     Returns:
         JSON command string
-        
+
     Raises:
         ValidationError: If device_id is invalid
     """

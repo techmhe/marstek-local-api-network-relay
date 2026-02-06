@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 
-from .pymarstek import build_command, get_es_status
 import voluptuous as vol
-
 from homeassistant.components.device_automation import (  # type: ignore[attr-defined]
     InvalidDeviceAutomationConfig,
 )
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_DEVICE_ID, CONF_DOMAIN, CONF_HOST, CONF_PORT, CONF_TYPE
 from homeassistant.core import Context, HomeAssistant
-from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.typing import ConfigType, TemplateVarsType
 
@@ -37,6 +35,7 @@ from .const import (
     device_default_socket_limit,
     get_device_power_limits,
 )
+from .pymarstek import MarstekUDPClient, build_command, get_es_status
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -88,7 +87,7 @@ ACTION_SCHEMA = cv.DEVICE_ACTION_BASE_SCHEMA.extend(
 def _resolve_action_settings(
     action_type: str,
     action_power: int | None,
-    entry: Any,
+    entry: ConfigEntry,
 ) -> tuple[int, int]:
     """Resolve power and enable values for the action."""
     if action_type == ACTION_CHARGE:
@@ -210,7 +209,7 @@ async def async_call_action_from_config(
     request_timeout = entry.options.get(
         CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT
     )
-    
+
     # Time for device to complete a full fast-tier poll cycle
     poll_cycle_time = poll_interval + (
         FAST_TIER_CALL_COUNT * (request_delay + CALL_TIME_BUDGET)
@@ -219,14 +218,14 @@ async def async_call_action_from_config(
     verification_delay = poll_cycle_time
     # Backoff between retry attempts also uses poll cycle time
     backoff_base = poll_cycle_time
-    
+
     _LOGGER.debug(
         "Action timing for %s: poll_cycle=%.1fs, verification_delay=%.1fs",
         host,
         poll_cycle_time,
         verification_delay,
     )
-    
+
     for attempt_idx in range(1, MAX_RETRY_ATTEMPTS + 1):
         # Step 1: Send command (pause only during send)
         await udp_client.pause_polling(host)
@@ -283,7 +282,8 @@ async def async_call_action_from_config(
             jitter = 0.30 * attempt_idx
             delay = backoff_base + jitter
             _LOGGER.warning(
-                "ES.SetMode action '%s' not confirmed on attempt %d/%d for device %s, retrying in %.2fs",
+                "ES.SetMode action '%s' not confirmed on attempt %d/%d for "
+                "device %s, retrying in %.2fs",
                 action_type,
                 attempt_idx,
                 MAX_RETRY_ATTEMPTS,
@@ -294,7 +294,8 @@ async def async_call_action_from_config(
             await asyncio.sleep(delay)
 
     raise TimeoutError(
-        f"ES.SetMode action '{action_type}' not confirmed after {MAX_RETRY_ATTEMPTS} attempts for device {host}"
+        f"ES.SetMode action '{action_type}' not confirmed after "
+        f"{MAX_RETRY_ATTEMPTS} attempts for device {host}"
     )
 
 
@@ -303,7 +304,7 @@ async def async_get_action_capabilities(
 ) -> dict[str, vol.Schema]:
     """List action capabilities."""
     action_type = config.get(CONF_TYPE)
-    
+
     # Charge and discharge actions have power parameter, stop does not
     if action_type in (ACTION_CHARGE, ACTION_DISCHARGE):
         return {
@@ -315,11 +316,11 @@ async def async_get_action_capabilities(
                 }
             )
         }
-    
+
     return {"extra_fields": vol.Schema({})}
 
 
-def _validate_action_power(entry: Any, power: int) -> None:
+def _validate_action_power(entry: ConfigEntry, power: int) -> None:
     """Validate signed action power against device limits."""
     device_type = entry.data.get("device_type")
     socket_limit = entry.options.get(
@@ -367,7 +368,7 @@ async def _verify_es_mode_quick(
     port: int,
     enable: int,
     power: int,
-    udp_client: Any,
+    udp_client: MarstekUDPClient,
     *,
     request_timeout: float,
 ) -> bool:
@@ -407,15 +408,12 @@ async def _verify_es_mode_quick(
             await asyncio.sleep(1.0)
             continue
 
-        if enable == 0:
-            if abs(battery_power) < STOP_POWER_THRESHOLD:
-                return True
-        elif enable == 1 and power < 0:
-            if battery_power < 0:
-                return True
-        elif enable == 1 and power > 0:
-            if battery_power > 0:
-                return True
+        if enable == 0 and abs(battery_power) < STOP_POWER_THRESHOLD:
+            return True
+        if enable == 1 and power < 0 and battery_power < 0:
+            return True
+        if enable == 1 and power > 0 and battery_power > 0:
+            return True
 
         await asyncio.sleep(1.0)
 
@@ -460,7 +458,7 @@ async def _get_host_from_device(
 
 def _get_entry_from_device_id(
     hass: HomeAssistant, device_id: str, *, require_loaded: bool = True
-) -> Any | None:
+) -> ConfigEntry | None:
     """Get config entry for a device ID."""
     device_registry = dr.async_get(hass)
     device = device_registry.async_get(device_id)

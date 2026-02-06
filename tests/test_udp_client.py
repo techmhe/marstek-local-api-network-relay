@@ -577,32 +577,16 @@ class TestRateLimiting:
 class TestGetBroadcastAddresses:
     """Tests for _get_broadcast_addresses method."""
 
-    def test_without_psutil(self, udp_client: MarstekUDPClient) -> None:
-        """Test fallback without psutil."""
-        with patch.object(udp_client, "_get_broadcast_addresses") as mock:
-            mock.return_value = ["255.255.255.255"]
+    def test_delegates_to_helper(self, udp_client: MarstekUDPClient) -> None:
+        """Test wrapper delegates to shared helper."""
+        with patch(
+            "custom_components.marstek.pymarstek.udp.get_broadcast_addresses",
+            return_value=["255.255.255.255"],
+        ) as mock_helper:
             result = udp_client._get_broadcast_addresses()
-        
-        assert "255.255.255.255" in result
 
-    def test_with_psutil_interfaces(self) -> None:
-        """Test with psutil interfaces."""
-        client = MarstekUDPClient()
-        
-        mock_addr = MagicMock()
-        mock_addr.family = socket.AF_INET
-        mock_addr.address = "192.168.1.100"
-        mock_addr.broadcast = "192.168.1.255"
-        mock_addr.netmask = "255.255.255.0"
-        
-        mock_psutil = MagicMock()
-        mock_psutil.net_if_addrs.return_value = {"eth0": [mock_addr]}
-        
-        with patch("custom_components.marstek.pymarstek.udp.psutil", mock_psutil):
-            result = client._get_broadcast_addresses()
-        
-        assert "255.255.255.255" in result
-        assert "192.168.1.255" in result
+        mock_helper.assert_called_once()
+        assert result == ["255.255.255.255"]
 
 
 class TestCacheValidation:

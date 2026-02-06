@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from homeassistant.const import CONF_DEVICE_ID, CONF_DOMAIN, CONF_TYPE
+from homeassistant.const import CONF_DEVICE_ID, CONF_DOMAIN, CONF_HOST, CONF_TYPE
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import format_mac
 
@@ -12,6 +12,7 @@ from custom_components.marstek.const import (
     CONF_ACTION_CHARGE_POWER,
     CONF_ACTION_DISCHARGE_POWER,
     CONF_SOCKET_LIMIT,
+    DEFAULT_UDP_PORT,
     DOMAIN,
 )
 from custom_components.marstek.device_action import (
@@ -725,35 +726,24 @@ async def test_async_get_action_capabilities_stop(hass, mock_config_entry):
 async def test_get_host_from_device_fallback_ip_identifier(hass, mock_config_entry):
     """Test _get_host_from_device fallback when identifier looks like IP."""
     from custom_components.marstek.device_action import _get_host_from_device
-    
+
     mock_config_entry.add_to_hass(hass)
-    
-    # Create a device with an IP-like identifier
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **mock_config_entry.data,
+            CONF_HOST: "",
+        },
+    )
+
     device_registry = dr.async_get(hass)
     device = device_registry.async_get_or_create(
         config_entry_id=mock_config_entry.entry_id,
         identifiers={(DOMAIN, "192.168.1.100")},
     )
-    
-    # Remove the config entry to force fallback
-    # We need to create a scenario where config entry has no host
-    # but identifier looks like IP
-    
-    # Create a client and set up the integration normally
-    client = _mock_client()
-    with _patch_all(client=client):
-        await hass.config_entries.async_setup(mock_config_entry.entry_id)
-        await hass.async_block_till_done()
-        
-        # The device created via integration should have the normal MAC identifier
-        normal_device = device_registry.async_get_device(identifiers={(DOMAIN, DEVICE_IDENTIFIER)})
-        assert normal_device is not None
-        
-        # Test with the IP-based identifier device
-        result = await _get_host_from_device(hass, device.id)
-        # If config entry has host, it returns that
-        # The IP identifier device won't have proper config entry with host
-        assert result is not None or result is None  # Either works
+
+    result = await _get_host_from_device(hass, device.id)
+    assert result == ("192.168.1.100", DEFAULT_UDP_PORT)
 
 
 async def test_device_action_verification_exception(hass, mock_config_entry):

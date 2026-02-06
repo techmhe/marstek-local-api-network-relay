@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 import logging
 import time
+from datetime import datetime, timedelta
 from typing import Any
-
-from .pymarstek import MarstekUDPClient
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er, issue_registry as ir
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -34,6 +33,7 @@ from .const import (
     INITIAL_SETUP_REQUEST_DELAY,
     device_supports_pv,
 )
+from .pymarstek import MarstekUDPClient
 from .scanner import MarstekScanner
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         is_initial_setup: bool = False,
     ) -> None:
         """Initialize the coordinator.
-        
+
         Args:
             hass: Home Assistant instance
             config_entry: Config entry for this device
@@ -66,29 +66,29 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Use initial IP/port, but read from config_entry.data dynamically
         self._initial_device_ip = device_ip
         self._initial_device_port = device_port
-        
+
         # Check device capabilities based on device type
         # Venus A and Venus D support PV; Venus C/E do NOT
         device_type = config_entry.data.get("device_type", "")
         self._supports_pv = device_supports_pv(device_type)
-        
+
         # Track last fetch times for tiered polling
         self._last_pv_fetch: float = 0.0  # Medium interval
         self._last_slow_fetch: float = 0.0  # Slow interval (WiFi, battery details)
-        
+
         # Track if this is the initial setup (use faster delays)
         self._is_initial_setup = is_initial_setup
-        
+
         # Diagnostics tracking - exposed for diagnostics.py
         self.last_update_success_time: datetime | None = None
         self.last_update_attempt_time: datetime | None = None
         self.consecutive_failures: int = 0
-        
+
         # Get configured fast polling interval
         fast_interval = config_entry.options.get(
             CONF_POLL_INTERVAL_FAST, DEFAULT_POLL_INTERVAL_FAST
         )
-        
+
         super().__init__(
             hass,
             _LOGGER,
@@ -97,17 +97,18 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=config_entry,
             always_update=False,
         )
-        
+
         # Store config entry reference that is guaranteed to be non-None
         # (The parent class allows None, but we always pass a config entry)
         self._entry: ConfigEntry = config_entry
-        
+
         # Log configured intervals
         medium_interval = self._get_medium_interval()
         slow_interval = self._get_slow_interval()
         request_delay = self._get_request_delay()
         _LOGGER.debug(
-            "Device %s:%s polling coordinator started, interval: %ss (fast), %ss (medium/PV), %ss (slow/WiFi+Bat), delay: %ss%s",
+            "Device %s:%s polling coordinator started, interval: %ss (fast), "
+            "%ss (medium/PV), %ss (slow/WiFi+Bat), delay: %ss%s",
             device_ip,
             device_port,
             fast_interval,
@@ -117,27 +118,27 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             " [INITIAL SETUP - fast delays]" if is_initial_setup else "",
         )
 
-    
+
     def _get_medium_interval(self) -> int:
         """Get medium polling interval from options."""
         return int(self._entry.options.get(
             CONF_POLL_INTERVAL_MEDIUM, DEFAULT_POLL_INTERVAL_MEDIUM
         ))
-    
+
     def _get_slow_interval(self) -> int:
         """Get slow polling interval from options."""
         return int(self._entry.options.get(
             CONF_POLL_INTERVAL_SLOW, DEFAULT_POLL_INTERVAL_SLOW
         ))
-    
+
     def finish_initial_setup(self) -> None:
         """Mark initial setup as complete.
-        
-        Should be called after the first successful data fetch to switch 
+
+        Should be called after the first successful data fetch to switch
         from fast initial delays to normal configured delays.
         """
         self._is_initial_setup = False
-    
+
     def _get_request_delay(self) -> float:
         """Get delay between requests from options, or fast delay for initial setup."""
         if self._is_initial_setup:
@@ -177,9 +178,11 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not entry.unique_id:
                 continue
             for key in wifi_keys:
-                if entry.unique_id.endswith(f"_{key}"):
-                    if entry.disabled_by is None:
-                        return True
+                if (
+                    entry.unique_id.endswith(f"_{key}")
+                    and entry.disabled_by is None
+                ):
+                    return True
         return False
 
     @property
@@ -196,7 +199,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data using library's get_device_status method with tiered polling.
-        
+
         Tiered polling intervals (configurable per device):
         - Fast (base interval): ES.GetMode, ES.GetStatus, EM.GetStatus - real-time power
         - Medium: PV.GetStatus - solar data
@@ -216,20 +219,20 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         medium_interval = self._get_medium_interval()
         slow_interval = self._get_slow_interval()
         request_delay = self._get_request_delay()
-        
+
         # PV data - medium interval, but only if device supports PV (Venus A/D)
         include_pv = (
-            self._supports_pv 
+            self._supports_pv
             and (current_time - self._last_pv_fetch) >= medium_interval
         )
-        
+
         # WiFi and battery details - slow interval
         include_slow = (current_time - self._last_slow_fetch) >= slow_interval
         include_wifi = include_slow and self._is_wifi_status_enabled()
-        
+
         # Get configured timeout
         request_timeout = self._get_request_timeout()
-        
+
         _LOGGER.debug(
             "Polling tiers for %s: fast=always, pv=%s, wifi=%s, bat=%s",
             current_ip,
@@ -291,21 +294,23 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     current_ip,
                 )
                 error_msg = f"No fresh data received from device at {current_ip}"
-                raise TimeoutError(error_msg) from None  # noqa: TRY301
+                raise TimeoutError(error_msg) from None
 
             if not has_valid_data:
                 _LOGGER.warning(
-                    "No valid data received from device at %s (device_mode=%s, soc=%s, power=%s) - connection failed",
+                    "No valid data received from device at %s "
+                    "(device_mode=%s, soc=%s, power=%s) - connection failed",
                     current_ip,
                     device_mode or "Unknown",
                     battery_soc or 0,
                     battery_power or 0,
                 )
                 error_msg = f"No valid data received from device at {current_ip}"
-                raise TimeoutError(error_msg) from None  # noqa: TRY301
+                raise TimeoutError(error_msg) from None
             if device_mode in ("Unknown", "unknown"):
                 _LOGGER.debug(
-                    "Device %s reported device_mode=Unknown but other data is present (soc=%s, power=%s)",
+                    "Device %s reported device_mode=Unknown but other data is "
+                    "present (soc=%s, power=%s)",
                     current_ip,
                     battery_soc or 0,
                     battery_power or 0,
@@ -328,12 +333,12 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Clear any existing connection issue on successful update
             self._clear_connection_issue()
 
-            return device_status  # noqa: TRY300
+            return device_status
         except (TimeoutError, OSError, ValueError) as err:
             # Connection failed - Scanner will detect IP changes and update config entry
             self.consecutive_failures += 1
             failure_threshold = self._get_failure_threshold()
-            
+
             if self.consecutive_failures >= failure_threshold:
                 _LOGGER.warning(
                     "Device %s status request failed (attempt #%d, threshold: %d): %s. "
@@ -353,7 +358,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise UpdateFailed(
                     f"Polling failed for {current_ip} (attempt #{self.consecutive_failures}): {err}"
                 ) from err
-            
+
             # Below threshold - log warning but return cached data to keep entities available
             _LOGGER.warning(
                 "Device %s status request failed (attempt #%d of %d): %s. "

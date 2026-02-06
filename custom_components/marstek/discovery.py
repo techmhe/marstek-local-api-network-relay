@@ -9,13 +9,13 @@ This module provides a workaround for pymarstek's discovery issues:
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json
 import logging
 import socket
 from typing import Any
 
 from .const import DEFAULT_UDP_PORT
+from .pymarstek.network import get_broadcast_addresses
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,55 +24,16 @@ DISCOVERY_TIMEOUT = 10.0  # Total discovery timeout in seconds
 DISCOVERY_METHOD = "Marstek.GetDevice"
 
 
-def _get_broadcast_addresses() -> list[str]:
-    """Get broadcast addresses for all network interfaces."""
-    addresses: set[str] = {"255.255.255.255"}
-
-    try:
-        import psutil
-
-        for addrs in psutil.net_if_addrs().values():
-            for addr in addrs:
-                if addr.family == socket.AF_INET and not addr.address.startswith("127."):
-                    if getattr(addr, "broadcast", None):
-                        addresses.add(addr.broadcast)
-                    elif getattr(addr, "netmask", None):
-                        try:
-                            network = ipaddress.IPv4Network(
-                                f"{addr.address}/{addr.netmask}", strict=False
-                            )
-                            addresses.add(str(network.broadcast_address))
-                        except (ValueError, OSError):
-                            continue
-
-        # Remove local IPs from broadcast addresses
-        try:
-            local_ips = {
-                addr.address
-                for addrs in psutil.net_if_addrs().values()
-                for addr in addrs
-                if addr.family == socket.AF_INET
-            }
-            addresses -= local_ips
-        except OSError:
-            pass
-
-    except ImportError:
-        _LOGGER.debug("psutil not available, using only global broadcast")
-    except OSError as err:
-        _LOGGER.warning("Failed to get network interfaces: %s", err)
-
-    return list(addresses)
-
-
 def _is_echo_response(response: dict[str, Any]) -> bool:
     """Check if a response is an echo of our request (not a valid device response)."""
     # Valid device response must have 'result' key
     # Echo/request has 'method' and 'params' but no 'result'
-    if "result" not in response:
-        if "method" in response and "params" in response:
-            return True
-    return False
+    return "result" not in response and "method" in response and "params" in response
+
+
+def _get_broadcast_addresses() -> list[str]:
+    """Get broadcast addresses for all network interfaces."""
+    return get_broadcast_addresses(logger=_LOGGER)
 
 
 def _is_valid_device_response(response: dict[str, Any]) -> bool:

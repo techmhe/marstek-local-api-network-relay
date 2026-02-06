@@ -11,129 +11,128 @@ import pytest
 
 
 class TestGetBroadcastAddresses:
-    """Tests for _get_broadcast_addresses."""
+    """Tests for get_broadcast_addresses."""
 
     def test_without_psutil(self) -> None:
         """Test fallback when psutil is not available."""
-        from custom_components.marstek.discovery import _get_broadcast_addresses
-        
-        # Patch the import to raise ImportError
-        with patch.dict("sys.modules", {"psutil": None}):
-            # Force ImportError by making psutil None in sys.modules
-            import sys
-            original = sys.modules.get("psutil")
-            sys.modules["psutil"] = None  # type: ignore[assignment]
-            try:
-                # The function catches ImportError internally
-                result = _get_broadcast_addresses()
-                # Should fall back to global broadcast
-                assert "255.255.255.255" in result
-            finally:
-                if original is not None:
-                    sys.modules["psutil"] = original
+        from custom_components.marstek.pymarstek.network import get_broadcast_addresses
+
+        result = get_broadcast_addresses(allow_import=False)
+
+        assert "255.255.255.255" in result
 
     def test_with_psutil_basic(self) -> None:
         """Test normal psutil operation."""
-        from custom_components.marstek.discovery import _get_broadcast_addresses
-        
+        from custom_components.marstek.pymarstek.network import get_broadcast_addresses
+
         mock_addr = MagicMock()
         mock_addr.family = socket.AF_INET
         mock_addr.address = "192.168.1.100"
         mock_addr.broadcast = "192.168.1.255"
         mock_addr.netmask = "255.255.255.0"
-        
-        with patch("psutil.net_if_addrs", return_value={"eth0": [mock_addr]}):
-            result = _get_broadcast_addresses()
-            
+
+        mock_psutil = MagicMock()
+        mock_psutil.net_if_addrs.return_value = {"eth0": [mock_addr]}
+
+        result = get_broadcast_addresses(psutil_module=mock_psutil)
+
         assert "255.255.255.255" in result
         assert "192.168.1.255" in result
         assert len(result) >= 2
 
     def test_with_psutil_no_broadcast_attr(self) -> None:
         """Test fallback to netmask calculation when broadcast is None."""
-        from custom_components.marstek.discovery import _get_broadcast_addresses
-        
+        from custom_components.marstek.pymarstek.network import get_broadcast_addresses
+
         mock_addr = MagicMock()
         mock_addr.family = socket.AF_INET
         mock_addr.address = "10.0.0.50"
         mock_addr.broadcast = None
         mock_addr.netmask = "255.255.255.0"
-        
-        with patch("psutil.net_if_addrs", return_value={"eth0": [mock_addr]}):
-            result = _get_broadcast_addresses()
-            
+
+        mock_psutil = MagicMock()
+        mock_psutil.net_if_addrs.return_value = {"eth0": [mock_addr]}
+
+        result = get_broadcast_addresses(psutil_module=mock_psutil)
+
         assert "255.255.255.255" in result
         assert "10.0.0.255" in result
 
     def test_with_psutil_invalid_network(self) -> None:
         """Test handling of invalid network address."""
-        from custom_components.marstek.discovery import _get_broadcast_addresses
-        
+        from custom_components.marstek.pymarstek.network import get_broadcast_addresses
+
         mock_addr = MagicMock()
         mock_addr.family = socket.AF_INET
         mock_addr.address = "invalid"
         mock_addr.broadcast = None
         mock_addr.netmask = "invalid"
-        
-        with patch("psutil.net_if_addrs", return_value={"eth0": [mock_addr]}):
-            result = _get_broadcast_addresses()
-            
-        # Should still have global broadcast
+
+        mock_psutil = MagicMock()
+        mock_psutil.net_if_addrs.return_value = {"eth0": [mock_addr]}
+
+        result = get_broadcast_addresses(psutil_module=mock_psutil)
+
         assert "255.255.255.255" in result
 
     def test_skips_loopback(self) -> None:
         """Test that loopback addresses are skipped."""
-        from custom_components.marstek.discovery import _get_broadcast_addresses
-        
+        from custom_components.marstek.pymarstek.network import get_broadcast_addresses
+
         mock_addr = MagicMock()
         mock_addr.family = socket.AF_INET
         mock_addr.address = "127.0.0.1"
         mock_addr.broadcast = "127.255.255.255"
         mock_addr.netmask = "255.0.0.0"
-        
-        with patch("psutil.net_if_addrs", return_value={"lo": [mock_addr]}):
-            result = _get_broadcast_addresses()
-            
+
+        mock_psutil = MagicMock()
+        mock_psutil.net_if_addrs.return_value = {"lo": [mock_addr]}
+
+        result = get_broadcast_addresses(psutil_module=mock_psutil)
+
         assert "127.255.255.255" not in result
 
     def test_skips_ipv6(self) -> None:
         """Test that IPv6 addresses are skipped."""
-        from custom_components.marstek.discovery import _get_broadcast_addresses
-        
+        from custom_components.marstek.pymarstek.network import get_broadcast_addresses
+
         mock_addr = MagicMock()
         mock_addr.family = socket.AF_INET6
         mock_addr.address = "::1"
-        
-        with patch("psutil.net_if_addrs", return_value={"lo": [mock_addr]}):
-            result = _get_broadcast_addresses()
-            
-        # Only global broadcast
+
+        mock_psutil = MagicMock()
+        mock_psutil.net_if_addrs.return_value = {"lo": [mock_addr]}
+
+        result = get_broadcast_addresses(psutil_module=mock_psutil)
+
         assert "255.255.255.255" in result
 
     def test_removes_local_ips_from_broadcast(self) -> None:
         """Test that local IPs are removed from broadcast addresses."""
-        from custom_components.marstek.discovery import _get_broadcast_addresses
-        
+        from custom_components.marstek.pymarstek.network import get_broadcast_addresses
+
         mock_addr = MagicMock()
         mock_addr.family = socket.AF_INET
         mock_addr.address = "192.168.1.100"
-        mock_addr.broadcast = "192.168.1.100"  # Same as local IP (shouldn't happen but test it)
+        mock_addr.broadcast = "192.168.1.100"
         mock_addr.netmask = "255.255.255.0"
-        
-        with patch("psutil.net_if_addrs", return_value={"eth0": [mock_addr]}):
-            result = _get_broadcast_addresses()
-            
-        # Local IP should be removed from broadcast set
+
+        mock_psutil = MagicMock()
+        mock_psutil.net_if_addrs.return_value = {"eth0": [mock_addr]}
+
+        result = get_broadcast_addresses(psutil_module=mock_psutil)
+
         assert "192.168.1.100" not in result
 
     def test_psutil_oserror(self) -> None:
         """Test handling of OSError from psutil."""
-        from custom_components.marstek.discovery import _get_broadcast_addresses
-        
-        with patch("psutil.net_if_addrs", side_effect=OSError("Network error")):
-            result = _get_broadcast_addresses()
-            
-        # Should fall back to global broadcast
+        from custom_components.marstek.pymarstek.network import get_broadcast_addresses
+
+        mock_psutil = MagicMock()
+        mock_psutil.net_if_addrs.side_effect = OSError("Network error")
+
+        result = get_broadcast_addresses(psutil_module=mock_psutil)
+
         assert "255.255.255.255" in result
 
 

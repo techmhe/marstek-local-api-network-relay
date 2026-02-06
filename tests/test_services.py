@@ -31,7 +31,10 @@ from custom_components.marstek.services import (
     SERVICE_SET_MANUAL_SCHEDULES,
     SERVICE_SET_PASSIVE_MODE,
     _calculate_week_set,
-    _parse_time_string,
+)
+from custom_components.marstek.pymarstek.validators import (
+    ValidationError,
+    normalize_time_value,
 )
 
 from tests.conftest import create_mock_client, patch_marstek_integration
@@ -57,23 +60,23 @@ def test_calculate_week_set() -> None:
     assert _calculate_week_set(["invalid"]) == 0
 
 
-def test_parse_time_string() -> None:
-    """Test _parse_time_string helper function."""
+def test_normalize_time_value() -> None:
+    """Test normalize_time_value helper function."""
     # Standard HH:MM format
-    assert _parse_time_string("08:00") == "08:00"
-    assert _parse_time_string("23:59") == "23:59"
-    assert _parse_time_string("00:00") == "00:00"
+    assert normalize_time_value("08:00") == "08:00"
+    assert normalize_time_value("23:59") == "23:59"
+    assert normalize_time_value("00:00") == "00:00"
 
     # HH:MM:SS format (seconds ignored)
-    assert _parse_time_string("08:00:00") == "08:00"
-    assert _parse_time_string("14:30:45") == "14:30"
+    assert normalize_time_value("08:00:00") == "08:00"
+    assert normalize_time_value("14:30:45") == "14:30"
 
     # Padding for single digits
-    assert _parse_time_string("8:5") == "08:05"
+    assert normalize_time_value("8:5") == "08:05"
 
     # Invalid format should raise
-    with pytest.raises(ValueError, match="Invalid time format"):
-        _parse_time_string("invalid")
+    with pytest.raises(ValidationError, match="time must be in HH:MM or HH:MM:SS"):
+        normalize_time_value("invalid")
 
 
 @pytest.mark.asyncio
@@ -512,6 +515,88 @@ async def test_set_manual_schedules_service(
 
         # Verify commands were sent (1 for setup + 2 for schedules)
         assert client.send_request.call_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_set_manual_schedules_invalid_time_format(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test batch schedules reject invalid time strings."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, DEVICE_IDENTIFIER)}
+        )
+        assert device is not None
+
+        with pytest.raises(HomeAssistantError) as err:
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_SET_MANUAL_SCHEDULES,
+                {
+                    ATTR_DEVICE_ID: device.id,
+                    ATTR_SCHEDULES: [
+                        {
+                            ATTR_SCHEDULE_SLOT: 0,
+                            ATTR_START_TIME: "invalid",
+                            ATTR_END_TIME: "16:00",
+                            ATTR_POWER: -2000,
+                            ATTR_DAYS: ["mon", "tue"],
+                            ATTR_ENABLE: True,
+                        },
+                    ],
+                },
+                blocking=True,
+            )
+
+        assert err.value.translation_key == "invalid_time_format"
+
+
+@pytest.mark.asyncio
+async def test_set_manual_schedules_invalid_time_range(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test batch schedules reject end times before start times."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        device_registry = dr.async_get(hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, DEVICE_IDENTIFIER)}
+        )
+        assert device is not None
+
+        with pytest.raises(HomeAssistantError) as err:
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_SET_MANUAL_SCHEDULES,
+                {
+                    ATTR_DEVICE_ID: device.id,
+                    ATTR_SCHEDULES: [
+                        {
+                            ATTR_SCHEDULE_SLOT: 0,
+                            ATTR_START_TIME: "18:00",
+                            ATTR_END_TIME: "08:00",
+                            ATTR_POWER: -2000,
+                            ATTR_DAYS: ["mon", "tue"],
+                            ATTR_ENABLE: True,
+                        },
+                    ],
+                },
+                blocking=True,
+            )
+
+        assert err.value.translation_key == "invalid_time_range"
 
 
 @pytest.mark.asyncio

@@ -89,7 +89,8 @@ CONF_ACTION_DISCHARGE_POWER: Final = "action_discharge_power"
 CONF_SOCKET_LIMIT: Final = "socket_limit"
 
 # Default polling intervals
-DEFAULT_POLL_INTERVAL_FAST: Final = 30  # Real-time power data (ES.GetMode, ES.GetStatus, EM.GetStatus)
+# Real-time power data (ES.GetMode, ES.GetStatus, EM.GetStatus)
+DEFAULT_POLL_INTERVAL_FAST: Final = 30
 DEFAULT_POLL_INTERVAL_MEDIUM: Final = 60  # PV data - changes with sun
 DEFAULT_POLL_INTERVAL_SLOW: Final = 300  # WiFi and battery details - rarely change
 DEFAULT_REQUEST_DELAY: Final = 5.0  # Delay between API requests during polling

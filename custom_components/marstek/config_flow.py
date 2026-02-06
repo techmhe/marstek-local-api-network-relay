@@ -7,13 +7,12 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_MAC, CONF_PORT
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device_registry import format_mac
-from homeassistant.data_entry_flow import section
 from homeassistant.helpers.selector import (
     BooleanSelector,
     NumberSelector,
@@ -22,7 +21,9 @@ from homeassistant.helpers.selector import (
 )
 
 try:
-    from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
+    from homeassistant.helpers.service_info.dhcp import (  # type: ignore[import-not-found]
+        DhcpServiceInfo,
+    )
 except ImportError:
     # Fallback for older Home Assistant versions (pre-2025.1)
     try:
@@ -42,16 +43,16 @@ except ImportError:
 from .const import (
     CONF_ACTION_CHARGE_POWER,
     CONF_ACTION_DISCHARGE_POWER,
-    CONF_SOCKET_LIMIT,
     CONF_FAILURE_THRESHOLD,
     CONF_POLL_INTERVAL_FAST,
     CONF_POLL_INTERVAL_MEDIUM,
     CONF_POLL_INTERVAL_SLOW,
     CONF_REQUEST_DELAY,
     CONF_REQUEST_TIMEOUT,
-    DEFAULT_FAILURE_THRESHOLD,
+    CONF_SOCKET_LIMIT,
     DEFAULT_ACTION_CHARGE_POWER,
     DEFAULT_ACTION_DISCHARGE_POWER,
+    DEFAULT_FAILURE_THRESHOLD,
     DEFAULT_POLL_INTERVAL_FAST,
     DEFAULT_POLL_INTERVAL_MEDIUM,
     DEFAULT_POLL_INTERVAL_SLOW,
@@ -595,10 +596,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             or entry.data.get("mac")
             or entry.data.get("wifi_mac")
         )
-        if entry_mac and format_mac(entry_mac) == self.unique_id:
-            return True
-
-        return False
+        return bool(entry_mac and format_mac(entry_mac) == self.unique_id)
 
     @staticmethod
     def async_get_options_flow(

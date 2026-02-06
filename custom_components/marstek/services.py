@@ -8,20 +8,12 @@ from datetime import time
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
-
-from .pymarstek import (
-    MAX_PASSIVE_DURATION,
-    MAX_POWER_VALUE,
-    MAX_TIME_SLOTS,
-    MarstekUDPClient,
-    build_command,
-)
-
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 
 from .const import (
     API_MODE_MANUAL,
@@ -34,6 +26,18 @@ from .const import (
     WEEKDAY_MAP,
     device_default_socket_limit,
     get_device_power_limits,
+)
+from .pymarstek import (
+    MAX_PASSIVE_DURATION,
+    MAX_POWER_VALUE,
+    MAX_TIME_SLOTS,
+    MarstekUDPClient,
+    build_command,
+)
+from .pymarstek.validators import (
+    ValidationError,
+    normalize_time_value,
+    validate_time_range,
 )
 
 if TYPE_CHECKING:
@@ -223,7 +227,7 @@ async def _send_mode_command(
     pause_polling: bool = True,
 ) -> None:
     """Send a mode command with retries.
-    
+
     Args:
         udp_client: UDP client for communication
         host: Device IP address
@@ -324,11 +328,10 @@ async def async_set_manual_schedule(hass: HomeAssistant, call: ServiceCall) -> N
 
     _validate_power_for_device(power, entry)
 
-    # Format times as HH:MM
-    start_time_str = start_time.strftime("%H:%M")
-    end_time_str = end_time.strftime("%H:%M")
-
-    _validate_time_range(start_time, end_time)
+    # Normalize times to HH:MM and validate range
+    start_time_str = _normalize_time_value(start_time, ATTR_START_TIME)
+    end_time_str = _normalize_time_value(end_time, ATTR_END_TIME)
+    _validate_time_range(start_time_str, end_time_str)
 
     # Calculate week_set bitmask
     week_set = _calculate_week_set(days)
@@ -364,7 +367,7 @@ async def async_set_manual_schedule(hass: HomeAssistant, call: ServiceCall) -> N
 
 async def async_clear_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> None:
     """Handle clear_manual_schedules service call.
-    
+
     Note: This clears all 10 schedule slots sequentially. Each slot requires
     a separate API call to the device due to protocol limitations.
     Polling is paused once for all 10 commands to avoid race conditions.
@@ -374,10 +377,10 @@ async def async_clear_manual_schedules(hass: HomeAssistant, call: ServiceCall) -
     entry, udp_client, host, port = _get_entry_and_client_from_device_id(hass, device_id)
 
     _LOGGER.info("Clearing 10 manual schedule slots for device %s...", device_id)
-    
+
     # Pause polling once for all 10 commands
     await udp_client.pause_polling(host)
-    
+
     try:
         # Clear all 10 schedule slots by setting them to disabled
         for slot in range(10):
@@ -404,40 +407,33 @@ async def async_clear_manual_schedules(hass: HomeAssistant, call: ServiceCall) -
     _LOGGER.info("Cleared all manual schedules for device %s", device_id)
 
 
-def _parse_time_string(time_str: str) -> str:
-    """Parse time string to HH:MM format."""
-    # Handle both "HH:MM" and "HH:MM:SS" formats
-    parts = time_str.split(":")
-    if len(parts) >= 2:
-        return f"{int(parts[0]):02d}:{int(parts[1]):02d}"
-    raise ValueError(f"Invalid time format: {time_str}")
+def _normalize_time_value(value: time | str, field_name: str) -> str:
+    """Normalize a time value to HH:MM, raising a HA-friendly error."""
+    try:
+        return normalize_time_value(value)
+    except ValidationError as err:
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="invalid_time_format",
+            translation_placeholders={"field": field_name, "value": str(value)},
+        ) from err
 
 
-def _time_to_minutes(value: time | str) -> int:
-    """Convert time or time string to minutes since midnight."""
-    if isinstance(value, time):
-        return value.hour * 60 + value.minute
-
-    parts = value.split(":")
-    if len(parts) >= 2:
-        return int(parts[0]) * 60 + int(parts[1])
-
-    raise ValueError(f"Invalid time format: {value}")
-
-
-def _validate_time_range(start: time | str, end: time | str) -> None:
+def _validate_time_range(start: str, end: str) -> None:
     """Validate that end time is after start time."""
-    if _time_to_minutes(end) <= _time_to_minutes(start):
+    try:
+        validate_time_range(start, end)
+    except ValidationError as err:
         raise HomeAssistantError(
             translation_domain=DOMAIN,
             translation_key="invalid_time_range",
-            translation_placeholders={"start": str(start), "end": str(end)},
-        )
+            translation_placeholders={"start": start, "end": end},
+        ) from err
 
 
 async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> None:
     """Handle set_manual_schedules service call (batch configuration).
-    
+
     Polling is paused once for all schedule commands to avoid race conditions.
     """
     device_id = _get_device_id_from_call(call)
@@ -448,16 +444,15 @@ async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> 
 
     # Pause polling once for all schedule commands
     await udp_client.pause_polling(host)
-    
+
     try:
         for schedule in schedules:
             schedule_slot = schedule[ATTR_SCHEDULE_SLOT]
             start_time_raw = schedule[ATTR_START_TIME]
             end_time_raw = schedule[ATTR_END_TIME]
-            _validate_time_range(start_time_raw, end_time_raw)
-
-            start_time_str = _parse_time_string(start_time_raw)
-            end_time_str = _parse_time_string(end_time_raw)
+            start_time_str = _normalize_time_value(start_time_raw, ATTR_START_TIME)
+            end_time_str = _normalize_time_value(end_time_raw, ATTR_END_TIME)
+            _validate_time_range(start_time_str, end_time_str)
             power = schedule.get(ATTR_POWER, 0)
             if power < min_power or power > max_power:
                 raise HomeAssistantError(
@@ -533,7 +528,7 @@ async def async_request_data_sync(hass: HomeAssistant, call: ServiceCall) -> Non
 
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Set up Marstek services.
-    
+
     Services are registered once globally (idempotent registration).
     """
     async def handle_set_passive_mode(call: ServiceCall) -> None:

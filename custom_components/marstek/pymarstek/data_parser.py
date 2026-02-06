@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import logging
+from typing import Any
 
 _LOGGER: logging.Logger | None = None
 
@@ -19,27 +18,27 @@ def _get_logger() -> logging.Logger:
 
 def parse_es_mode_response(response: dict[str, Any]) -> dict[str, Any]:
     """Parse ES.GetMode response into structured data.
-    
+
     ES.GetMode returns device mode and grid power info, NOT battery power.
     For actual battery power, use parse_es_status_response with ES.GetStatus.
-    
+
     Args:
         response: Raw response from ES.GetMode command
-        
+
     Returns:
         Dictionary with parsed mode and grid data (device_mode, ongrid_power)
     """
     result = response.get("result", {})
-    
+
     battery_soc = result.get("bat_soc")
     ongrid_power = result.get("ongrid_power")
     raw_mode = result.get("mode")
     # Convert API mode to lowercase HA mode (ignore non-string placeholders)
     device_mode = raw_mode.lower() if isinstance(raw_mode, str) and raw_mode else None
-    
+
     # NOTE: ongrid_power is GRID power, not battery power!
     # Positive = exporting to grid, Negative = importing from grid
-    
+
     return {
         "battery_soc": battery_soc,
         "device_mode": device_mode,
@@ -50,18 +49,18 @@ def parse_es_mode_response(response: dict[str, Any]) -> dict[str, Any]:
 
 def parse_es_status_response(response: dict[str, Any]) -> dict[str, Any]:
     """Parse ES.GetStatus response into structured data.
-    
+
     ES.GetStatus returns actual battery power and energy statistics.
     Field names match the official Marstek Open API spec.
-    
+
     Args:
         response: Raw response from ES.GetStatus command
-        
+
     Returns:
         Dictionary with parsed battery data (battery_power, battery_status, etc.)
     """
     result = response.get("result", {})
-    
+
     # ES.GetStatus fields per official API spec (docs/marstek_device_openapi.MD)
     bat_soc = result.get("bat_soc")
     bat_cap = result.get("bat_cap")  # Battery capacity in Wh
@@ -132,19 +131,19 @@ def parse_es_status_response(response: dict[str, Any]) -> dict[str, Any]:
 
 def parse_pv_status_response(response: dict[str, Any]) -> dict[str, Any]:
     """Parse PV.GetStatus response into structured data.
-    
+
     Note: The API spec shows single PV channel fields (pv_power, pv_voltage, pv_current).
     Some devices may return multi-channel data with prefixes (pv1_, pv2_, etc.).
     This parser handles both formats.
-    
+
     Args:
         response: Raw response from PV.GetStatus command
-        
+
     Returns:
         Dictionary with parsed PV channel data (pv1-pv4 or single pv_)
     """
     result = response.get("result", {})
-    
+
     pv_data: dict[str, Any] = {}
 
     def _scale_pv_power(raw_value: Any, *, channel: int | None = None) -> Any:
@@ -161,7 +160,7 @@ def parse_pv_status_response(response: dict[str, Any]) -> dict[str, Any]:
         except (TypeError, ValueError):
             return raw_value
 
-    
+
     # Check for single-channel format (per API spec)
     if "pv_power" in result:
         # Single PV channel - map to pv1_* for consistency
@@ -196,23 +195,23 @@ def parse_pv_status_response(response: dict[str, Any]) -> dict[str, Any]:
                 pv_data[f"{prefix}current"] = result.get(f"{prefix}current")
             if f"{prefix}state" in result:
                 pv_data[f"{prefix}state"] = result.get(f"{prefix}state")
-    
+
     return pv_data
 
 
 def parse_wifi_status_response(response: dict[str, Any]) -> dict[str, Any]:
     """Parse Wifi.GetStatus response into structured data.
-    
+
     Provides WiFi signal strength (RSSI) and network information.
-    
+
     Args:
         response: Raw response from Wifi.GetStatus command
-        
+
     Returns:
         Dictionary with WiFi data (wifi_rssi, wifi_ssid, etc.)
     """
     result = response.get("result", {})
-    
+
     return {
         "wifi_rssi": result.get("rssi"),  # Signal strength in dBm
         "wifi_ssid": result.get("ssid"),
@@ -225,21 +224,21 @@ def parse_wifi_status_response(response: dict[str, Any]) -> dict[str, Any]:
 
 def parse_em_status_response(response: dict[str, Any]) -> dict[str, Any]:
     """Parse EM.GetStatus (Energy Meter/CT) response into structured data.
-    
+
     Provides CT connection state and phase power readings.
-    
+
     Args:
         response: Raw response from EM.GetStatus command
-        
+
     Returns:
         Dictionary with energy meter data (ct_state, phase powers, total_power)
     """
     result = response.get("result", {})
-    
+
     ct_state_raw = result.get("ct_state")
     # Convert to boolean-friendly value: 0=Not connected, 1=Connected
     ct_connected = ct_state_raw == 1 if ct_state_raw is not None else None
-    
+
     return {
         "ct_state": ct_state_raw,  # Raw value: 0=Not connected, 1=Connected
         "ct_connected": ct_connected,  # Boolean for binary sensor
@@ -252,17 +251,17 @@ def parse_em_status_response(response: dict[str, Any]) -> dict[str, Any]:
 
 def parse_bat_status_response(response: dict[str, Any]) -> dict[str, Any]:
     """Parse Bat.GetStatus response into structured data.
-    
+
     Provides detailed battery information including temperature and capacity.
-    
+
     Args:
         response: Raw response from Bat.GetStatus command
-        
+
     Returns:
         Dictionary with battery data (bat_temp, charge flags, capacity)
     """
     result = response.get("result", {})
-    
+
     return {
         "bat_temp": result.get("bat_temp"),  # Battery temperature [°C]
         "bat_charg_flag": result.get("charg_flag"),  # Charging permission flag
@@ -285,7 +284,7 @@ def merge_device_status(
     previous_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Merge all status data into a complete device status.
-    
+
     Priority order for overlapping keys:
     1. es_status_data (most accurate for battery_power, battery_status)
     2. es_mode_data (device_mode, ongrid_power)
@@ -294,10 +293,10 @@ def merge_device_status(
     5. em_status_data (CT connection, phase powers)
     6. pv_status_data (PV channel data)
     7. previous_status (fallback for any values not provided by current data)
-    
+
     Note: Battery power is recalculated using PV channel data when ES.GetStatus
     returns incorrect pv_power (common on Venus A devices).
-    
+
     Args:
         es_mode_data: Parsed ES.GetMode data (device_mode, ongrid_power)
         es_status_data: Parsed ES.GetStatus data (battery_power, battery_status)
@@ -307,9 +306,9 @@ def merge_device_status(
         bat_status_data: Parsed Bat.GetStatus data (temperature, capacity)
         device_ip: Device IP address
         last_update: Timestamp of last update
-        previous_status: Previous device status to preserve values when individual 
+        previous_status: Previous device status to preserve values when individual
             requests fail (prevents intermittent "Unknown" states)
-        
+
     Returns:
         Complete device status dictionary
     """
@@ -348,7 +347,7 @@ def merge_device_status(
         "bat_rated_capacity": None,
         "bat_soc_detailed": None,
     }
-    
+
     def _is_unknown_value(value: Any) -> bool:
         return isinstance(value, str) and value.lower() == "unknown"
 
@@ -358,7 +357,7 @@ def merge_device_status(
                 continue
             status[key] = value
 
-    # Apply previous status first (lowest priority) to preserve values 
+    # Apply previous status first (lowest priority) to preserve values
     # from last successful poll when individual requests fail
     if previous_status:
         # Only preserve non-None values from previous status
@@ -368,38 +367,35 @@ def merge_device_status(
                 and not _is_unknown_value(value)
                 and key in status
                 and status[key] is None
-            ):
-                status[key] = value
-            # Preserve PV keys from previous status if they exist (device supports PV)
-            elif (
+            ) or (
                 key.startswith("pv")
                 and key not in status
                 and value is not None
                 and not _is_unknown_value(value)
             ):
                 status[key] = value
-    
+
     # Apply in order of priority (lowest to highest)
     # PV data is ONLY included if pv_status_data is provided (Venus A/D devices only)
     if pv_status_data:
         _apply_updates(pv_status_data)
-    
+
     if em_status_data:
         _apply_updates(em_status_data)
-    
+
     if wifi_status_data:
         _apply_updates(wifi_status_data)
-    
+
     if bat_status_data:
         _apply_updates(bat_status_data)
-    
+
     if es_mode_data:
         _apply_updates(es_mode_data)
-    
+
     # ES.GetStatus has highest priority for battery data
     if es_status_data:
         _apply_updates(es_status_data)
-    
+
     # Recalculate pv_power and battery_power using PV channel data when
     # ES.GetStatus returns incorrect pv_power (Venus A devices report pv_power=0
     # in ES.GetStatus but individual channels from PV.GetStatus are correct)
@@ -414,7 +410,7 @@ def merge_device_status(
         if (es_pv_power in (None, 0)) and total_pv_from_channels > 0:
             # Override pv_power with calculated total from PV channels
             status["pv_power"] = total_pv_from_channels
-            
+
             # Recalculate battery power using correct pv_power
             ongrid_power = es_status_data.get("ongrid_power")
             if isinstance(ongrid_power, (int, float)):
@@ -430,12 +426,12 @@ def merge_device_status(
                     status["battery_status"] = "charging"
                 else:
                     status["battery_status"] = "idle"
-    
+
     if device_ip:
         status["device_ip"] = device_ip
-    
+
     if last_update is not None:
         status["last_update"] = last_update
-    
+
     return status
 

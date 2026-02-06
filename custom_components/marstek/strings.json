@@ -430,6 +430,9 @@
     "command_failed": {
       "message": "Failed to send command: {error}"
     },
+    "invalid_time_format": {
+      "message": "Invalid time format for {field}: {value}. Use HH:MM."
+    },
     "invalid_time_range": {
       "message": "End time must be after start time (start: {start}, end: {end})."
     },
