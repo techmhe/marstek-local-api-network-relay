@@ -80,6 +80,7 @@ def parse_es_status_response(response: dict[str, Any]) -> dict[str, Any]:
         and "bat_power" not in result
         and isinstance(pv_power, (int, float))
         and isinstance(ongrid_power, (int, float))
+        and (pv_power != 0 or ongrid_power != 0)
     ):
         # Fallback when API omits bat_power (Venus A/E devices):
         # Energy flow: battery + PV = grid export (when discharging to grid)
