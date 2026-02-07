@@ -20,6 +20,7 @@ For any question or request, always run the `runSubagent` Official Docs Research
 Note: When asked about Marstek information, that exists in our local API documentation in `docs/marstek_device_openapi.MD` as there are no online resources for that.
 
 Note: If you have already done research via the Official Docs Researcher, you do not have to run it again.
+Note: For release management you do not have to do Online Resarch, the "Release Management" skill is enough
 
 ## Architectural constraints you must respect
 
