@@ -209,6 +209,32 @@ def _validate_power_for_device(power: int, entry: MarstekConfigEntry) -> None:
     validate_power_for_entry(entry, power, _power_error)
 
 
+def _build_manual_schedule_config(
+    *,
+    schedule_slot: int,
+    start_time_raw: time | str,
+    end_time_raw: time | str,
+    power: int,
+    days: list[str],
+    enable: bool,
+) -> tuple[dict[str, Any], str, str]:
+    """Build manual schedule config and normalized time strings."""
+    start_time_str = _normalize_time_value(start_time_raw, ATTR_START_TIME)
+    end_time_str = _normalize_time_value(end_time_raw, ATTR_END_TIME)
+    _validate_time_range(start_time_str, end_time_str)
+
+    week_set = _calculate_week_set(days)
+    config = build_manual_mode_config(
+        power=power,
+        enable=enable,
+        time_num=schedule_slot,
+        start_time=start_time_str,
+        end_time=end_time_str,
+        week_set=week_set,
+    )
+    return config, start_time_str, end_time_str
+
+
 async def _send_mode_command(
     udp_client: MarstekUDPClient,
     host: str,
@@ -320,20 +346,13 @@ async def async_set_manual_schedule(hass: HomeAssistant, call: ServiceCall) -> N
     _validate_power_for_device(power, entry)
 
     # Normalize times to HH:MM and validate range
-    start_time_str = _normalize_time_value(start_time, ATTR_START_TIME)
-    end_time_str = _normalize_time_value(end_time, ATTR_END_TIME)
-    _validate_time_range(start_time_str, end_time_str)
-
-    # Calculate week_set bitmask
-    week_set = _calculate_week_set(days)
-
-    config = build_manual_mode_config(
+    config, start_time_str, end_time_str = _build_manual_schedule_config(
+        schedule_slot=schedule_slot,
+        start_time_raw=start_time,
+        end_time_raw=end_time,
         power=power,
+        days=days,
         enable=enable,
-        time_num=schedule_slot,
-        start_time=start_time_str,
-        end_time=end_time_str,
-        week_set=week_set,
     )
 
     await _send_mode_command(udp_client, host, port, config)
@@ -444,10 +463,20 @@ async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> 
             schedule_slot = schedule[ATTR_SCHEDULE_SLOT]
             start_time_raw = schedule[ATTR_START_TIME]
             end_time_raw = schedule[ATTR_END_TIME]
-            start_time_str = _normalize_time_value(start_time_raw, ATTR_START_TIME)
-            end_time_str = _normalize_time_value(end_time_raw, ATTR_END_TIME)
-            _validate_time_range(start_time_str, end_time_str)
             power = schedule.get(ATTR_POWER, 0)
+            days = schedule.get(
+                ATTR_DAYS,
+                ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+            )
+            enable = schedule.get(ATTR_ENABLE, True)
+            config, start_time_str, end_time_str = _build_manual_schedule_config(
+                schedule_slot=schedule_slot,
+                start_time_raw=start_time_raw,
+                end_time_raw=end_time_raw,
+                power=power,
+                days=days,
+                enable=enable,
+            )
             if power < min_power or power > max_power:
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
@@ -458,21 +487,6 @@ async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> 
                         "max": str(max_power),
                     },
                 )
-            days = schedule.get(ATTR_DAYS, ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
-            enable = schedule.get(ATTR_ENABLE, True)
-
-            # Calculate week_set bitmask
-            week_set = _calculate_week_set(days)
-
-            config = build_manual_mode_config(
-                power=power,
-                enable=enable,
-                time_num=schedule_slot,
-                start_time=start_time_str,
-                end_time=end_time_str,
-                week_set=week_set,
-            )
-
             await _send_mode_command(udp_client, host, port, config, pause_polling=False)
 
             _LOGGER.debug(

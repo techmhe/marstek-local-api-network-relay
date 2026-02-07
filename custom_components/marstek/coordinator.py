@@ -152,6 +152,82 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             or bat_temp is not None
         )
 
+    def _raise_if_invalid_status(
+        self, current_ip: str, device_status: dict[str, Any]
+    ) -> None:
+        """Raise if status data is missing or invalid."""
+        has_fresh_data = device_status.get("has_fresh_data", True)
+        device_mode = device_status.get("device_mode")
+        battery_soc = device_status.get("battery_soc")
+        battery_power = device_status.get("battery_power")
+        has_valid_data = self._has_valid_status_data(device_status)
+
+        if not has_fresh_data:
+            _LOGGER.warning(
+                "No fresh data received from device at %s - keeping previous values",
+                current_ip,
+            )
+            error_msg = f"No fresh data received from device at {current_ip}"
+            raise TimeoutError(error_msg) from None
+
+        if not has_valid_data:
+            _LOGGER.warning(
+                "No valid data received from device at %s "
+                "(device_mode=%s, soc=%s, power=%s) - connection failed",
+                current_ip,
+                device_mode or "Unknown",
+                battery_soc or 0,
+                battery_power or 0,
+            )
+            error_msg = f"No valid data received from device at {current_ip}"
+            raise TimeoutError(error_msg) from None
+
+        if device_mode in ("Unknown", "unknown"):
+            _LOGGER.debug(
+                "Device %s reported device_mode=Unknown but other data is "
+                "present (soc=%s, power=%s)",
+                current_ip,
+                battery_soc or 0,
+                battery_power or 0,
+            )
+
+    def _handle_update_error(self, current_ip: str, err: Exception) -> dict[str, Any]:
+        """Handle polling errors and return cached data or raise UpdateFailed."""
+        self.consecutive_failures += 1
+        failure_threshold = self._get_failure_threshold()
+
+        if self.consecutive_failures >= failure_threshold:
+            _LOGGER.warning(
+                "Device %s status request failed (attempt #%d, threshold: %d): %s. "
+                "Entities will become unavailable. "
+                "Triggering immediate scan for IP changes",
+                current_ip,
+                self.consecutive_failures,
+                failure_threshold,
+                err,
+            )
+            self._create_connection_issue(str(err))
+            # Trigger immediate scan to detect IP changes faster
+            # (event-driven approach instead of aggressive polling)
+            scanner = MarstekScanner.async_get(self.hass)
+            scanner.async_request_scan()
+            # Mark update as failed so entities become unavailable
+            raise UpdateFailed(
+                f"Polling failed for {current_ip} (attempt #{self.consecutive_failures}): {err}"
+            ) from err
+
+        # Below threshold - log warning but return cached data to keep entities available
+        _LOGGER.warning(
+            "Device %s status request failed (attempt #%d of %d): %s. "
+            "Keeping entities available with cached data",
+            current_ip,
+            self.consecutive_failures,
+            failure_threshold,
+            err,
+        )
+        # Return cached data - entities stay available
+        return self.data or {}
+
     def _get_medium_interval(self) -> int:
         """Get medium polling interval from options."""
         return int(self._entry.options.get(
@@ -289,39 +365,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._last_slow_fetch = current_time
 
             # Check if we actually got valid data
-            has_fresh_data = device_status.get("has_fresh_data", True)
-            device_mode = device_status.get("device_mode")
-            battery_soc = device_status.get("battery_soc")
-            battery_power = device_status.get("battery_power")
-            has_valid_data = self._has_valid_status_data(device_status)
-
-            if not has_fresh_data:
-                _LOGGER.warning(
-                    "No fresh data received from device at %s - keeping previous values",
-                    current_ip,
-                )
-                error_msg = f"No fresh data received from device at {current_ip}"
-                raise TimeoutError(error_msg) from None
-
-            if not has_valid_data:
-                _LOGGER.warning(
-                    "No valid data received from device at %s "
-                    "(device_mode=%s, soc=%s, power=%s) - connection failed",
-                    current_ip,
-                    device_mode or "Unknown",
-                    battery_soc or 0,
-                    battery_power or 0,
-                )
-                error_msg = f"No valid data received from device at {current_ip}"
-                raise TimeoutError(error_msg) from None
-            if device_mode in ("Unknown", "unknown"):
-                _LOGGER.debug(
-                    "Device %s reported device_mode=Unknown but other data is "
-                    "present (soc=%s, power=%s)",
-                    current_ip,
-                    battery_soc or 0,
-                    battery_power or 0,
-                )
+            self._raise_if_invalid_status(current_ip, device_status)
             _LOGGER.debug(
                 "Device %s poll done: SOC %s%%, Power %sW, Mode %s, Status %s (pv=%s, slow=%s)",
                 current_ip,
@@ -343,40 +387,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return device_status
         except (TimeoutError, OSError, ValueError) as err:
             # Connection failed - Scanner will detect IP changes and update config entry
-            self.consecutive_failures += 1
-            failure_threshold = self._get_failure_threshold()
-
-            if self.consecutive_failures >= failure_threshold:
-                _LOGGER.warning(
-                    "Device %s status request failed (attempt #%d, threshold: %d): %s. "
-                    "Entities will become unavailable. "
-                    "Triggering immediate scan for IP changes",
-                    current_ip,
-                    self.consecutive_failures,
-                    failure_threshold,
-                    err,
-                )
-                self._create_connection_issue(str(err))
-                # Trigger immediate scan to detect IP changes faster
-                # (event-driven approach instead of aggressive polling)
-                scanner = MarstekScanner.async_get(self.hass)
-                scanner.async_request_scan()
-                # Mark update as failed so entities become unavailable
-                raise UpdateFailed(
-                    f"Polling failed for {current_ip} (attempt #{self.consecutive_failures}): {err}"
-                ) from err
-
-            # Below threshold - log warning but return cached data to keep entities available
-            _LOGGER.warning(
-                "Device %s status request failed (attempt #%d of %d): %s. "
-                "Keeping entities available with cached data",
-                current_ip,
-                self.consecutive_failures,
-                failure_threshold,
-                err,
-            )
-            # Return cached data - entities stay available
-            return self.data or {}
+            return self._handle_update_error(current_ip, err)
 
     def _issue_id(self) -> str:
         return f"cannot_connect_{self._entry.entry_id}"

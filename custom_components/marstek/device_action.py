@@ -107,6 +107,91 @@ def _resolve_action_settings(
     return STOP_POWER, 0
 
 
+def _calculate_action_timing(entry: ConfigEntry) -> tuple[float, float]:
+    """Calculate request timeout and poll cycle time for action verification."""
+    poll_interval = entry.options.get(
+        CONF_POLL_INTERVAL_FAST, DEFAULT_POLL_INTERVAL_FAST
+    )
+    request_delay = entry.options.get(
+        CONF_REQUEST_DELAY, DEFAULT_REQUEST_DELAY
+    )
+    request_timeout = entry.options.get(
+        CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT
+    )
+
+    poll_cycle_time = poll_interval + (
+        FAST_TIER_CALL_COUNT * (request_delay + CALL_TIME_BUDGET)
+    )
+    return float(request_timeout), float(poll_cycle_time)
+
+
+async def _send_action_command(
+    udp_client: MarstekUDPClient,
+    host: str,
+    port: int,
+    command: str,
+    *,
+    request_timeout: float,
+    attempt_idx: int,
+) -> None:
+    """Send ES.SetMode command with polling pause and logging."""
+    await udp_client.pause_polling(host)
+    try:
+        await udp_client.send_request(
+            command,
+            host,
+            port,
+            timeout=request_timeout,
+            quiet_on_timeout=True,
+        )
+    except (TimeoutError, OSError, ValueError) as err:
+        _LOGGER.debug(
+            "ES.SetMode send attempt %d/%d failed for %s: %s",
+            attempt_idx,
+            MAX_RETRY_ATTEMPTS,
+            host,
+            err,
+        )
+    finally:
+        await udp_client.resume_polling(host)
+
+
+async def _verify_action_command(
+    hass: HomeAssistant,
+    udp_client: MarstekUDPClient,
+    host: str,
+    port: int,
+    enable: int,
+    power: int,
+    *,
+    request_timeout: float,
+    attempt_idx: int,
+) -> bool:
+    """Verify ES.SetMode outcome with polling pause and logging."""
+    await udp_client.pause_polling(host)
+    try:
+        return await _verify_es_mode_quick(
+            hass,
+            host,
+            port,
+            enable,
+            power,
+            udp_client,
+            request_timeout=request_timeout,
+        )
+    except (TimeoutError, OSError, ValueError) as err:
+        _LOGGER.debug(
+            "ES.SetMode verification attempt %d/%d failed for %s: %s",
+            attempt_idx,
+            MAX_RETRY_ATTEMPTS,
+            host,
+            err,
+        )
+        return False
+    finally:
+        await udp_client.resume_polling(host)
+
+
 async def async_validate_action_config(
     hass: HomeAssistant, config: ConfigType
 ) -> ConfigType:
@@ -200,20 +285,7 @@ async def async_call_action_from_config(
     # Calculate timeouts based on configured poll interval and request delays
     # Device needs time to complete a full poll cycle before we can verify the mode change
     # Worst case: poll_interval + (number_of_calls * (delay_between_calls + time_per_call))
-    poll_interval = entry.options.get(
-        CONF_POLL_INTERVAL_FAST, DEFAULT_POLL_INTERVAL_FAST
-    )
-    request_delay = entry.options.get(
-        CONF_REQUEST_DELAY, DEFAULT_REQUEST_DELAY
-    )
-    request_timeout = entry.options.get(
-        CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT
-    )
-
-    # Time for device to complete a full fast-tier poll cycle
-    poll_cycle_time = poll_interval + (
-        FAST_TIER_CALL_COUNT * (request_delay + CALL_TIME_BUDGET)
-    )
+    request_timeout, poll_cycle_time = _calculate_action_timing(entry)
     # Verification delay is the full poll cycle time
     verification_delay = poll_cycle_time
     # Backoff between retry attempts also uses poll cycle time
@@ -228,54 +300,37 @@ async def async_call_action_from_config(
 
     for attempt_idx in range(1, MAX_RETRY_ATTEMPTS + 1):
         # Step 1: Send command (pause only during send)
-        await udp_client.pause_polling(host)
-        try:
-            await udp_client.send_request(
-                command,
-                host,
-                port,
-                timeout=request_timeout,
-                quiet_on_timeout=True,
-            )
-        except (TimeoutError, OSError, ValueError) as err:
-            _LOGGER.debug(
-                "ES.SetMode send attempt %d/%d failed for %s: %s",
-                attempt_idx,
-                MAX_RETRY_ATTEMPTS,
-                host,
-                err,
-            )
-        finally:
-            await udp_client.resume_polling(host)
+        await _send_action_command(
+            udp_client,
+            host,
+            port,
+            command,
+            request_timeout=request_timeout,
+            attempt_idx=attempt_idx,
+        )
 
         # Step 2: Wait for device to settle (polling is ACTIVE during this wait)
         await asyncio.sleep(verification_delay)
 
         # Step 3: Quick verification checks (pause only during checks)
-        await udp_client.pause_polling(host)
-        try:
-            if await _verify_es_mode_quick(
-                hass, host, port, enable, power, udp_client,
-                request_timeout=request_timeout,
-            ):
-                _LOGGER.info(
-                    "ES.SetMode action '%s' confirmed after attempt %d/%d for device %s",
-                    action_type,
-                    attempt_idx,
-                    MAX_RETRY_ATTEMPTS,
-                    host,
-                )
-                return
-        except (TimeoutError, OSError, ValueError) as err:
-            _LOGGER.debug(
-                "ES.SetMode verification attempt %d/%d failed for %s: %s",
+        if await _verify_action_command(
+            hass,
+            udp_client,
+            host,
+            port,
+            enable,
+            power,
+            request_timeout=request_timeout,
+            attempt_idx=attempt_idx,
+        ):
+            _LOGGER.info(
+                "ES.SetMode action '%s' confirmed after attempt %d/%d for device %s",
+                action_type,
                 attempt_idx,
                 MAX_RETRY_ATTEMPTS,
                 host,
-                err,
             )
-        finally:
-            await udp_client.resume_polling(host)
+            return
 
         if attempt_idx < MAX_RETRY_ATTEMPTS:
             # Backoff is based on poll cycle time with small jitter

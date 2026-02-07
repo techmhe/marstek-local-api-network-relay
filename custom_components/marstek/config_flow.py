@@ -472,29 +472,17 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             host = str(user_input.get(CONF_HOST, ""))
             port = int(reauth_entry.data.get(CONF_PORT, DEFAULT_UDP_PORT))
 
-            if not host:
-                errors["base"] = "cannot_connect"
-            else:
-                try:
-                    device_info = await get_device_info(host=host, port=port)
-                    if device_info:
-                        unique_id_mac = (
-                            device_info.get("ble_mac")
-                            or device_info.get("mac")
-                            or device_info.get("wifi_mac")
-                        )
-                        if not unique_id_mac:
-                            errors["base"] = "invalid_discovery_info"
-                        else:
-                            await self.async_set_unique_id(format_mac(unique_id_mac))
-                            self._abort_if_unique_id_mismatch()
-                            return self.async_update_reload_and_abort(
-                                reauth_entry,
-                                data_updates={CONF_HOST: host},
-                            )
-                    errors["base"] = "cannot_connect"
-                except (OSError, TimeoutError, ValueError):
-                    errors["base"] = "cannot_connect"
+            result, error = await self._async_handle_host_update(
+                reauth_entry,
+                host,
+                port,
+                update_port=False,
+                reason=None,
+            )
+            if result is not None:
+                return result
+            if error:
+                errors["base"] = error
 
         return self.async_show_form(
             step_id="reauth_confirm",
@@ -520,30 +508,17 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             host = str(user_input.get(CONF_HOST, ""))
             port = int(user_input.get(CONF_PORT, DEFAULT_UDP_PORT))
 
-            if not host:
-                errors["base"] = "cannot_connect"
-            else:
-                try:
-                    device_info = await get_device_info(host=host, port=port)
-                    if device_info:
-                        unique_id_mac = (
-                            device_info.get("ble_mac")
-                            or device_info.get("mac")
-                            or device_info.get("wifi_mac")
-                        )
-                        if not unique_id_mac:
-                            errors["base"] = "invalid_discovery_info"
-                        else:
-                            await self.async_set_unique_id(format_mac(unique_id_mac))
-                            self._abort_if_unique_id_mismatch()
-                            return self.async_update_reload_and_abort(
-                                reconfigure_entry,
-                                data_updates={CONF_HOST: host, CONF_PORT: port},
-                                reason="reconfigure_successful",
-                            )
-                    errors["base"] = "cannot_connect"
-                except (OSError, TimeoutError, ValueError):
-                    errors["base"] = "cannot_connect"
+            result, error = await self._async_handle_host_update(
+                reconfigure_entry,
+                host,
+                port,
+                update_port=True,
+                reason="reconfigure_successful",
+            )
+            if result is not None:
+                return result
+            if error:
+                errors["base"] = error
 
         return self.async_show_form(
             step_id="reconfigure_confirm",
@@ -597,6 +572,55 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # No existing entry found, confirm discovery
         return await self.async_step_confirm()
+
+    async def _async_handle_host_update(
+        self,
+        entry: config_entries.ConfigEntry,
+        host: str,
+        port: int,
+        *,
+        update_port: bool,
+        reason: str | None,
+    ) -> tuple[config_entries.ConfigFlowResult | None, str | None]:
+        """Validate host and update the entry if the device matches."""
+        if not host:
+            return None, "cannot_connect"
+
+        try:
+            device_info = await get_device_info(host=host, port=port)
+            if not device_info:
+                return None, "cannot_connect"
+
+            formatted_unique_id = _get_unique_id_from_device_info(device_info)
+            if not formatted_unique_id:
+                return None, "invalid_discovery_info"
+
+            await self.async_set_unique_id(formatted_unique_id)
+            self._abort_if_unique_id_mismatch()
+
+            data_updates: dict[str, Any] = {CONF_HOST: host}
+            if update_port:
+                data_updates[CONF_PORT] = port
+
+            if reason is None:
+                return (
+                    self.async_update_reload_and_abort(
+                        entry,
+                        data_updates=data_updates,
+                    ),
+                    None,
+                )
+
+            return (
+                self.async_update_reload_and_abort(
+                    entry,
+                    data_updates=data_updates,
+                    reason=reason,
+                ),
+                None,
+            )
+        except (OSError, TimeoutError, ValueError):
+            return None, "cannot_connect"
 
     def _entry_matches_unique_id(self, entry: config_entries.ConfigEntry) -> bool:
         """Return True if entry matches current flow unique id."""

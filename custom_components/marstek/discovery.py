@@ -24,6 +24,32 @@ DISCOVERY_TIMEOUT = 10.0  # Total discovery timeout in seconds
 DISCOVERY_METHOD = "Marstek.GetDevice"
 
 
+def _build_discovery_message() -> bytes:
+    """Build discovery request payload."""
+    request = {
+        "id": 0,
+        "method": DISCOVERY_METHOD,
+        "params": {"ble_mac": "0"},
+    }
+    return json.dumps(request).encode("utf-8")
+
+
+def _build_device_info(result: dict[str, Any], device_ip: str) -> dict[str, Any]:
+    """Build device info dict from discovery response result."""
+    return {
+        "id": result.get("id", 0),
+        "device_type": result.get("device", "Unknown"),
+        "version": result.get("ver", 0),
+        "wifi_name": result.get("wifi_name", ""),
+        "ip": device_ip,
+        "wifi_mac": result.get("wifi_mac", ""),
+        "ble_mac": result.get("ble_mac", ""),
+        "mac": result.get("wifi_mac") or result.get("ble_mac", ""),
+        "model": result.get("device", "Unknown"),
+        "firmware": str(result.get("ver", 0)),
+    }
+
+
 def _is_echo_response(response: dict[str, Any]) -> bool:
     """Check if a response is an echo of our request (not a valid device response)."""
     # Valid device response must have 'result' key
@@ -87,12 +113,7 @@ async def discover_devices(
     loop = asyncio.get_running_loop()
 
     # Build discovery request with ID 0 (required by Marstek devices)
-    request = {
-        "id": 0,
-        "method": DISCOVERY_METHOD,
-        "params": {"ble_mac": "0"},
-    }
-    message = json.dumps(request).encode("utf-8")
+    message = _build_discovery_message()
 
     # Get all broadcast addresses
     broadcast_addrs = _get_broadcast_addresses()
@@ -156,18 +177,7 @@ async def discover_devices(
             seen_ips.add(device_ip)
 
             # Build device info dict (compatible with pymarstek format)
-            device = {
-                "id": result.get("id", 0),
-                "device_type": result.get("device", "Unknown"),
-                "version": result.get("ver", 0),
-                "wifi_name": result.get("wifi_name", ""),
-                "ip": device_ip,
-                "wifi_mac": result.get("wifi_mac", ""),
-                "ble_mac": result.get("ble_mac", ""),
-                "mac": result.get("wifi_mac") or result.get("ble_mac", ""),
-                "model": result.get("device", "Unknown"),
-                "firmware": str(result.get("ver", 0)),
-            }
+            device = _build_device_info(result, device_ip)
             devices.append(device)
             _LOGGER.info(
                 "Discovered device: %s at %s (BLE MAC: %s)",
@@ -221,12 +231,7 @@ async def get_device_info(
     sock.bind(("0.0.0.0", 0))
 
     # Build request
-    request = {
-        "id": 0,
-        "method": DISCOVERY_METHOD,
-        "params": {"ble_mac": "0"},
-    }
-    message = json.dumps(request).encode("utf-8")
+    message = _build_discovery_message()
 
     loop = asyncio.get_running_loop()
 
@@ -265,18 +270,7 @@ async def get_device_info(
                 result = response["result"]
 
                 # Build device info dict
-                device = {
-                    "id": result.get("id", 0),
-                    "device_type": result.get("device", "Unknown"),
-                    "version": result.get("ver", 0),
-                    "wifi_name": result.get("wifi_name", ""),
-                    "ip": result.get("ip", host),
-                    "wifi_mac": result.get("wifi_mac", ""),
-                    "ble_mac": result.get("ble_mac", ""),
-                    "mac": result.get("wifi_mac") or result.get("ble_mac", ""),
-                    "model": result.get("device", "Unknown"),
-                    "firmware": str(result.get("ver", 0)),
-                }
+                device = _build_device_info(result, result.get("ip", host))
 
                 _LOGGER.info(
                     "Got device info: %s at %s (BLE MAC: %s)",

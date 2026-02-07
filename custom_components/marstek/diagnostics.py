@@ -117,6 +117,28 @@ def _summarize_command_stats(stats: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
+def _build_polling_config(entry: MarstekConfigEntry) -> dict[str, Any]:
+    """Build polling configuration from entry options."""
+    return {
+        "poll_interval_fast": entry.options.get(
+            CONF_POLL_INTERVAL_FAST, DEFAULT_POLL_INTERVAL_FAST
+        ),
+        "poll_interval_medium": entry.options.get(
+            CONF_POLL_INTERVAL_MEDIUM, DEFAULT_POLL_INTERVAL_MEDIUM
+        ),
+        "poll_interval_slow": entry.options.get(
+            CONF_POLL_INTERVAL_SLOW, DEFAULT_POLL_INTERVAL_SLOW
+        ),
+        "request_delay": entry.options.get(CONF_REQUEST_DELAY, DEFAULT_REQUEST_DELAY),
+        "request_timeout": entry.options.get(
+            CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT
+        ),
+        "failure_threshold": entry.options.get(
+            CONF_FAILURE_THRESHOLD, DEFAULT_FAILURE_THRESHOLD
+        ),
+    }
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: MarstekConfigEntry
 ) -> dict[str, Any]:
@@ -145,24 +167,7 @@ async def async_get_config_entry_diagnostics(
     consecutive_failures = getattr(coordinator, "consecutive_failures", 0)
 
     # Get polling configuration (actual values being used)
-    polling_config = {
-        "poll_interval_fast": entry.options.get(
-            CONF_POLL_INTERVAL_FAST, DEFAULT_POLL_INTERVAL_FAST
-        ),
-        "poll_interval_medium": entry.options.get(
-            CONF_POLL_INTERVAL_MEDIUM, DEFAULT_POLL_INTERVAL_MEDIUM
-        ),
-        "poll_interval_slow": entry.options.get(
-            CONF_POLL_INTERVAL_SLOW, DEFAULT_POLL_INTERVAL_SLOW
-        ),
-        "request_delay": entry.options.get(CONF_REQUEST_DELAY, DEFAULT_REQUEST_DELAY),
-        "request_timeout": entry.options.get(
-            CONF_REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT
-        ),
-        "failure_threshold": entry.options.get(
-            CONF_FAILURE_THRESHOLD, DEFAULT_FAILURE_THRESHOLD
-        ),
-    }
+    polling_config = _build_polling_config(entry)
 
     # Command diagnostics from shared UDP client (if available)
     # Only include device-specific stats for this entry's device

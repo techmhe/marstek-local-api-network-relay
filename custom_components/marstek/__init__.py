@@ -74,6 +74,23 @@ def _get_shared_udp_client(hass: HomeAssistant) -> MarstekUDPClient | None:
     return None
 
 
+async def _async_cleanup_last_entry(hass: HomeAssistant) -> None:
+    """Clean up shared resources when the last entry unloads."""
+    udp_client = _get_shared_udp_client(hass)
+    if udp_client:
+        await udp_client.async_cleanup()
+
+    # Stop scanner before resetting singleton to ensure clean state on reload
+    scanner = MarstekScanner.async_get(hass)
+    await scanner.async_unload()
+    MarstekScanner.async_reset()
+
+    # Remove domain data entirely when last entry is unloaded
+    hass.data.pop(DOMAIN, None)
+
+    await async_unload_services(hass)
+
+
 async def _get_or_create_shared_udp_client(hass: HomeAssistant) -> MarstekUDPClient:
     """Get existing shared UDP client or create a new one.
 
@@ -278,20 +295,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> 
     ]
 
     if not remaining_entries:
-        # Last entry - cleanup shared UDP client and remove domain data
-        udp_client = _get_shared_udp_client(hass)
-        if udp_client:
-            await udp_client.async_cleanup()
-
-        # Stop scanner before resetting singleton to ensure clean state on reload
-        scanner = MarstekScanner.async_get(hass)
-        await scanner.async_unload()
-        MarstekScanner.async_reset()
-
-        # Remove domain data entirely when last entry is unloaded
-        hass.data.pop(DOMAIN, None)
-
-        await async_unload_services(hass)
+        await _async_cleanup_last_entry(hass)
 
     return unload_ok
 

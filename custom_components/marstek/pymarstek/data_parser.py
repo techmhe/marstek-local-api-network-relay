@@ -272,6 +272,38 @@ def parse_bat_status_response(response: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _is_unknown_value(value: Any) -> bool:
+    """Check if value is an 'unknown' placeholder."""
+    return isinstance(value, str) and value.lower() == "unknown"
+
+
+def _recalculate_battery_from_pv(
+    status: dict[str, Any],
+    pv_status_data: dict[str, Any],
+    es_status_data: dict[str, Any],
+) -> None:
+    """Recalculate battery power using PV channel data when ES.GetStatus is wrong."""
+    es_pv_power = es_status_data.get("pv_power")
+    total_pv_from_channels = sum(
+        pv_status_data.get(f"pv{ch}_power", 0) or 0 for ch in range(1, 5)
+    )
+    # If ES.GetStatus pv_power is 0 but channels have real power, override
+    if (es_pv_power in (None, 0)) and total_pv_from_channels > 0:
+        status["pv_power"] = total_pv_from_channels
+
+        ongrid_power = es_status_data.get("ongrid_power")
+        if isinstance(ongrid_power, (int, float)):
+            raw_bat_power = total_pv_from_channels - ongrid_power
+            battery_power = -raw_bat_power
+            status["battery_power"] = battery_power
+            if battery_power > 0:
+                status["battery_status"] = "discharging"
+            elif battery_power < 0:
+                status["battery_status"] = "charging"
+            else:
+                status["battery_status"] = "idle"
+
+
 def merge_device_status(
     es_mode_data: dict[str, Any] | None = None,
     es_status_data: dict[str, Any] | None = None,
@@ -348,9 +380,6 @@ def merge_device_status(
         "bat_soc_detailed": None,
     }
 
-    def _is_unknown_value(value: Any) -> bool:
-        return isinstance(value, str) and value.lower() == "unknown"
-
     def _apply_updates(updates: dict[str, Any]) -> None:
         for key, value in updates.items():
             if value is None or _is_unknown_value(value):
@@ -400,32 +429,7 @@ def merge_device_status(
     # ES.GetStatus returns incorrect pv_power (Venus A devices report pv_power=0
     # in ES.GetStatus but individual channels from PV.GetStatus are correct)
     if pv_status_data and es_status_data:
-        es_pv_power = es_status_data.get("pv_power")
-        # Calculate total from individual PV channels
-        total_pv_from_channels = sum(
-            pv_status_data.get(f"pv{ch}_power", 0) or 0
-            for ch in range(1, 5)
-        )
-        # If ES.GetStatus pv_power is 0 but channels have real power, override
-        if (es_pv_power in (None, 0)) and total_pv_from_channels > 0:
-            # Override pv_power with calculated total from PV channels
-            status["pv_power"] = total_pv_from_channels
-
-            # Recalculate battery power using correct pv_power
-            ongrid_power = es_status_data.get("ongrid_power")
-            if isinstance(ongrid_power, (int, float)):
-                # bat_power = pv_power - ongrid_power (API convention)
-                # Then negate for HA convention (positive = discharging)
-                raw_bat_power = total_pv_from_channels - ongrid_power
-                battery_power = -raw_bat_power
-                status["battery_power"] = battery_power
-                # Update battery status based on recalculated power
-                if battery_power > 0:
-                    status["battery_status"] = "discharging"
-                elif battery_power < 0:
-                    status["battery_status"] = "charging"
-                else:
-                    status["battery_status"] = "idle"
+        _recalculate_battery_from_pv(status, pv_status_data, es_status_data)
 
     if device_ip:
         status["device_ip"] = device_ip

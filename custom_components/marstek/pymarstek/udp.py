@@ -61,6 +61,23 @@ def _new_command_stats() -> dict[str, Any]:
     }
 
 
+def _build_discovered_device(result: dict[str, Any]) -> dict[str, Any]:
+    """Build device info dict from discovery response."""
+    device_ip = result.get("ip", "")
+    return {
+        "id": result.get("id", 0),
+        "device_type": result.get("device", "Unknown"),
+        "version": result.get("ver", 0),
+        "wifi_name": result.get("wifi_name", ""),
+        "ip": device_ip,
+        "wifi_mac": result.get("wifi_mac", ""),
+        "ble_mac": result.get("ble_mac", ""),
+        "mac": result.get("wifi_mac") or result.get("ble_mac", ""),
+        "model": result.get("device", "Unknown"),
+        "firmware": str(result.get("ver", 0)),
+    }
+
+
 class MarstekUDPClient:
     """UDP client for communicating with Marstek devices.
 
@@ -191,6 +208,19 @@ class MarstekUDPClient:
         self._command_stats.clear()
         self._command_stats_by_ip.clear()
 
+    async def _ensure_socket(self) -> socket.socket:
+        """Ensure the UDP socket is initialized and return it."""
+        if not self._socket:
+            await self.async_setup()
+        assert self._socket is not None
+        return self._socket
+
+    def _ensure_listener(self) -> None:
+        """Ensure the response listener task is running."""
+        if not self._listen_task or self._listen_task.done():
+            loop = self._loop or asyncio.get_running_loop()
+            self._listen_task = loop.create_task(self._listen_for_responses())
+
     def _is_cache_valid(self) -> bool:
         if self._discovery_cache is None:
             return False
@@ -314,16 +344,14 @@ class MarstekUDPClient:
             await self._cleanup_rate_limit_tracking()
 
     async def _send_udp_message(self, message: str, target_ip: str, target_port: int) -> None:
-        if not self._socket:
-            await self.async_setup()
-        assert self._socket is not None
+        sock = await self._ensure_socket()
 
         # Enforce rate limiting for non-broadcast addresses
         if target_ip not in ("255.255.255.255",) and not target_ip.endswith(".255"):
             await self._enforce_rate_limit(target_ip)
 
         data = message.encode("utf-8")
-        self._socket.sendto(data, (target_ip, target_port))
+        sock.sendto(data, (target_ip, target_port))
         _LOGGER.debug("Send: %s:%d | %s", target_ip, target_port, message)
 
     async def send_request(
@@ -355,9 +383,7 @@ class MarstekUDPClient:
             TimeoutError: If no response received within timeout
             ValueError: If message has no id field
         """
-        if not self._socket:
-            await self.async_setup()
-        assert self._socket is not None
+        await self._ensure_socket()
 
         # Validate message before sending to protect device
         if validate:
@@ -395,9 +421,7 @@ class MarstekUDPClient:
         self._pending_requests[request_id] = future
 
         try:
-            if not self._listen_task or self._listen_task.done():
-                loop = self._loop or asyncio.get_running_loop()
-                self._listen_task = loop.create_task(self._listen_for_responses())
+            self._ensure_listener()
 
             request_started = time.time()
             await self._send_udp_message(message, target_ip, target_port)
@@ -494,9 +518,7 @@ class MarstekUDPClient:
             ValidationError: If message validation fails and validate=True
         """
         _LOGGER.debug("Starting broadcast discovery with timeout %ss", timeout)
-        if not self._socket:
-            await self.async_setup()
-        assert self._socket is not None
+        await self._ensure_socket()
 
         # Validate message before broadcasting to protect devices
         if validate:
@@ -521,8 +543,7 @@ class MarstekUDPClient:
         self._pending_requests[request_id] = future
 
         try:
-            if not self._listen_task or self._listen_task.done():
-                self._listen_task = loop.create_task(self._listen_for_responses())
+            self._ensure_listener()
 
             broadcast_addresses = self._get_broadcast_addresses()
             _LOGGER.debug("Broadcast addresses: %s on port %d", broadcast_addresses, self._port)
@@ -574,20 +595,7 @@ class MarstekUDPClient:
                 continue
             seen_devices.add(device_id)
 
-            devices.append(
-                {
-                    "id": result.get("id", 0),
-                    "device_type": result.get("device", "Unknown"),
-                    "version": result.get("ver", 0),
-                    "wifi_name": result.get("wifi_name", ""),
-                    "ip": result.get("ip", ""),
-                    "wifi_mac": result.get("wifi_mac", ""),
-                    "ble_mac": result.get("ble_mac", ""),
-                    "mac": result.get("wifi_mac") or result.get("ble_mac", ""),
-                    "model": result.get("device", "Unknown"),
-                    "firmware": str(result.get("ver", 0)),
-                }
-            )
+            devices.append(_build_discovered_device(result))
 
         self._discovery_cache = devices.copy()
         self._cache_timestamp = loop.time()

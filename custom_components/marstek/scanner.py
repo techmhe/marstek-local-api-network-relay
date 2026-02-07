@@ -33,6 +33,19 @@ MIN_SCAN_INTERVAL = timedelta(seconds=30)
 UNCONFIGURED_DISCOVERY_DEBOUNCE = timedelta(hours=1)
 
 
+def _build_discovery_flow_data(device: dict[str, Any]) -> dict[str, Any]:
+    """Build discovery flow data from device info."""
+    return {
+        "ip": device.get("ip"),
+        "ble_mac": device.get("ble_mac"),
+        "device_type": device.get("device_type"),
+        "version": device.get("version"),
+        "wifi_name": device.get("wifi_name"),
+        "wifi_mac": device.get("wifi_mac"),
+        "mac": device.get("mac"),
+    }
+
+
 class MarstekScanner:
     """Scanner for Marstek devices that detects IP address changes."""
 
@@ -229,15 +242,7 @@ class MarstekScanner:
                         self._hass,
                         DOMAIN,
                         context={"source": config_entries.SOURCE_INTEGRATION_DISCOVERY},
-                        data={
-                            "ip": new_ip,
-                            "ble_mac": stored_ble_mac,
-                            "device_type": matched_device.get("device_type"),
-                            "version": matched_device.get("version"),
-                            "wifi_name": matched_device.get("wifi_name"),
-                            "wifi_mac": matched_device.get("wifi_mac"),
-                            "mac": matched_device.get("mac"),
-                        },
+                        data=_build_discovery_flow_data(matched_device),
                     )
                 else:
                     _LOGGER.debug(
@@ -367,13 +372,5 @@ class MarstekScanner:
                 self._hass,
                 DOMAIN,
                 context={"source": config_entries.SOURCE_INTEGRATION_DISCOVERY},
-                data={
-                    "ip": device_ip,
-                    "ble_mac": device_ble_mac,
-                    "device_type": device.get("device_type"),
-                    "version": device.get("version"),
-                    "wifi_name": device.get("wifi_name"),
-                    "wifi_mac": device.get("wifi_mac"),
-                    "mac": device.get("mac"),
-                },
+                data=_build_discovery_flow_data(device),
             )
