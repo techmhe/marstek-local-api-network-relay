@@ -24,7 +24,7 @@ from .const import (
     WEEKDAY_MAP,
 )
 from .mode_config import build_manual_mode_config
-from .power import get_power_limits_for_entry, validate_power_for_entry
+from .power import validate_power_for_entry
 from .pymarstek import (
     MAX_PASSIVE_DURATION,
     MAX_POWER_VALUE,
@@ -66,6 +66,16 @@ ATTR_DAYS = "days"
 ATTR_ENABLE = "enable"
 ATTR_SCHEDULES = "schedules"
 
+DEFAULT_SCHEDULE_DAYS: tuple[str, ...] = (
+    "mon",
+    "tue",
+    "wed",
+    "thu",
+    "fri",
+    "sat",
+    "sun",
+)
+
 SERVICE_SET_PASSIVE_MODE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
@@ -89,7 +99,7 @@ SERVICE_SET_MANUAL_SCHEDULE_SCHEMA = vol.Schema(
         vol.Required(ATTR_POWER): vol.All(
             vol.Coerce(int), vol.Range(min=-MAX_POWER_VALUE, max=MAX_POWER_VALUE)
         ),
-        vol.Optional(ATTR_DAYS, default=["mon", "tue", "wed", "thu", "fri", "sat", "sun"]): vol.All(
+        vol.Optional(ATTR_DAYS, default=list(DEFAULT_SCHEDULE_DAYS)): vol.All(
             cv.ensure_list,
             [vol.In(WEEKDAY_MAP.keys())],
         ),
@@ -107,7 +117,7 @@ SCHEDULE_ITEM_SCHEMA = vol.Schema(
         vol.Optional(ATTR_POWER, default=0): vol.All(
             vol.Coerce(int), vol.Range(min=-MAX_POWER_VALUE, max=MAX_POWER_VALUE)
         ),
-        vol.Optional(ATTR_DAYS, default=["mon", "tue", "wed", "thu", "fri", "sat", "sun"]): vol.All(
+        vol.Optional(ATTR_DAYS, default=list(DEFAULT_SCHEDULE_DAYS)): vol.All(
             cv.ensure_list,
             [vol.In(WEEKDAY_MAP.keys())],
         ),
@@ -453,8 +463,6 @@ async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> 
     schedules = call.data[ATTR_SCHEDULES]
 
     entry, udp_client, host, port = _get_entry_and_client_from_device_id(hass, device_id)
-    min_power, max_power = get_power_limits_for_entry(entry)
-
     # Pause polling once for all schedule commands
     await udp_client.pause_polling(host)
 
@@ -464,10 +472,7 @@ async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> 
             start_time_raw = schedule[ATTR_START_TIME]
             end_time_raw = schedule[ATTR_END_TIME]
             power = schedule.get(ATTR_POWER, 0)
-            days = schedule.get(
-                ATTR_DAYS,
-                ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-            )
+            days = schedule.get(ATTR_DAYS, list(DEFAULT_SCHEDULE_DAYS))
             enable = schedule.get(ATTR_ENABLE, True)
             config, start_time_str, end_time_str = _build_manual_schedule_config(
                 schedule_slot=schedule_slot,
@@ -477,16 +482,7 @@ async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> 
                 days=days,
                 enable=enable,
             )
-            if power < min_power or power > max_power:
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="power_out_of_range",
-                    translation_placeholders={
-                        "requested": str(power),
-                        "min": str(min_power),
-                        "max": str(max_power),
-                    },
-                )
+            _validate_power_for_device(power, entry)
             await _send_mode_command(udp_client, host, port, config, pause_polling=False)
 
             _LOGGER.debug(

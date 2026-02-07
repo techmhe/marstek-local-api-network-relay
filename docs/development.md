@@ -12,7 +12,14 @@
 From repo root:
 
 ```
-pytest
+# Linting
+python3 -m ruff check custom_components/marstek/
+
+# Type checking
+python3 -m mypy --strict custom_components/marstek/
+
+# Tests with coverage
+pytest tests/ -q --cov=custom_components/marstek --cov-fail-under=95
 ```
 
 ## Mock device

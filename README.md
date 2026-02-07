@@ -222,11 +222,14 @@ pip install -r requirements_test.txt
 ### Running Tests
 
 ```bash
-# Run all tests
-pytest tests/
+# Linting
+python3 -m ruff check custom_components/marstek/
 
-# Run with coverage
-pytest tests/ --cov=custom_components/marstek --cov-report=term-missing
+# Type checking
+python3 -m mypy --strict custom_components/marstek/
+
+# Tests with coverage
+pytest tests/ -q --cov=custom_components/marstek --cov-fail-under=95
 
 # Run specific test file
 pytest tests/test_config_flow.py -v
