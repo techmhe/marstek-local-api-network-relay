@@ -2,17 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.components.binary_sensor import (
-    BinarySensorDeviceClass,
-    BinarySensorEntity,
-    BinarySensorEntityDescription,
-)
+from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -20,55 +13,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import MarstekConfigEntry
 from .coordinator import MarstekDataUpdateCoordinator
 from .device_info import build_device_info, get_device_identifier
-
-
-@dataclass(kw_only=True)
-class MarstekBinarySensorEntityDescription(BinarySensorEntityDescription):  # type: ignore[misc]
-    """Marstek binary sensor entity description."""
-
-    value_fn: Callable[[dict[str, Any]], bool | None]
-    exists_fn: Callable[[dict[str, Any]], bool] = lambda data: True
-
-
-def _exists_key(key: str, data: dict[str, Any]) -> bool:
-    """Check if key exists in data."""
-    return key in data
-
-
-BINARY_SENSORS: tuple[MarstekBinarySensorEntityDescription, ...] = (
-    MarstekBinarySensorEntityDescription(
-        key="ct_connection",
-        translation_key="ct_connection",
-        device_class=BinarySensorDeviceClass.CONNECTIVITY,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=False,
-        value_fn=lambda data: data.get("ct_connected"),
-        exists_fn=lambda data: _exists_key("ct_connected", data),
-    ),
-    MarstekBinarySensorEntityDescription(
-        key="bat_charg_flag",
-        translation_key="charge_permission",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=False,
-        value_fn=lambda data: (
-            bool(data.get("bat_charg_flag"))
-            if data.get("bat_charg_flag") is not None
-            else None
-        ),
-        exists_fn=lambda data: _exists_key("bat_charg_flag", data),
-    ),
-    MarstekBinarySensorEntityDescription(
-        key="bat_dischrg_flag",
-        translation_key="discharge_permission",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=False,
-        value_fn=lambda data: (
-            bool(data.get("bat_dischrg_flag"))
-            if data.get("bat_dischrg_flag") is not None
-            else None
-        ),
-        exists_fn=lambda data: _exists_key("bat_dischrg_flag", data),
-    ),
+from .helpers.binary_sensor_descriptions import (
+    BINARY_SENSORS,
+    MarstekBinarySensorEntityDescription,
 )
 
 

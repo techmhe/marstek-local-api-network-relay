@@ -2,51 +2,43 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-import voluptuous as vol
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 
-from .const import (
-    API_MODE_PASSIVE,
-    CMD_ES_SET_MODE,
-    DATA_UDP_CLIENT,
-    DEFAULT_UDP_PORT,
-    DOMAIN,
-    WEEKDAY_MAP,
+from .const import API_MODE_PASSIVE, DATA_UDP_CLIENT, DEFAULT_UDP_PORT, DOMAIN
+from .helpers.service_helpers import (
+    ATTR_DAYS,
+    ATTR_DEVICE_ID,
+    ATTR_DURATION,
+    ATTR_ENABLE,
+    ATTR_END_TIME,
+    ATTR_POWER,
+    ATTR_SCHEDULE_SLOT,
+    ATTR_SCHEDULES,
+    ATTR_START_TIME,
+    DEFAULT_SCHEDULE_DAYS,
+    SERVICE_CLEAR_MANUAL_SCHEDULES_SCHEMA,
+    SERVICE_REQUEST_DATA_SYNC_SCHEMA,
+    SERVICE_SET_MANUAL_SCHEDULE_SCHEMA,
+    SERVICE_SET_MANUAL_SCHEDULES_SCHEMA,
+    SERVICE_SET_PASSIVE_MODE_SCHEMA,
+    build_manual_schedule_config,
 )
+from .helpers.service_retry import send_mode_command_with_retries
 from .mode_config import build_manual_mode_config
 from .power import validate_power_for_entry
-from .pymarstek import (
-    MAX_PASSIVE_DURATION,
-    MAX_POWER_VALUE,
-    MAX_TIME_SLOTS,
-    MarstekUDPClient,
-    build_command,
-)
-from .pymarstek.validators import (
-    ValidationError,
-    normalize_time_value,
-    validate_time_range,
-)
+from .pymarstek import MAX_TIME_SLOTS, MarstekUDPClient
 
 if TYPE_CHECKING:
     from . import MarstekConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
-
-# Retry configuration
-MAX_RETRY_ATTEMPTS = 3
-RETRY_TIMEOUT = 5.0
-RETRY_DELAY = 1.0
 
 # Service names
 SERVICE_SET_PASSIVE_MODE = "set_passive_mode"
@@ -54,108 +46,6 @@ SERVICE_SET_MANUAL_SCHEDULE = "set_manual_schedule"
 SERVICE_SET_MANUAL_SCHEDULES = "set_manual_schedules"
 SERVICE_CLEAR_MANUAL_SCHEDULES = "clear_manual_schedules"
 SERVICE_REQUEST_DATA_SYNC = "request_data_sync"
-
-# Service schemas
-ATTR_DEVICE_ID = "device_id"
-ATTR_POWER = "power"
-ATTR_DURATION = "duration"
-ATTR_SCHEDULE_SLOT = "schedule_slot"
-ATTR_START_TIME = "start_time"
-ATTR_END_TIME = "end_time"
-ATTR_DAYS = "days"
-ATTR_ENABLE = "enable"
-ATTR_SCHEDULES = "schedules"
-
-DEFAULT_SCHEDULE_DAYS: tuple[str, ...] = (
-    "mon",
-    "tue",
-    "wed",
-    "thu",
-    "fri",
-    "sat",
-    "sun",
-)
-
-SERVICE_SET_PASSIVE_MODE_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_POWER): vol.All(
-            vol.Coerce(int), vol.Range(min=-MAX_POWER_VALUE, max=MAX_POWER_VALUE)
-        ),
-        vol.Optional(ATTR_DURATION, default=3600): vol.All(
-            vol.Coerce(int), vol.Range(min=0, max=MAX_PASSIVE_DURATION)
-        ),
-    }
-)
-
-SERVICE_SET_MANUAL_SCHEDULE_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Optional(ATTR_SCHEDULE_SLOT, default=0): vol.All(
-            vol.Coerce(int), vol.Range(min=0, max=MAX_TIME_SLOTS - 1)
-        ),
-        vol.Required(ATTR_START_TIME): cv.time,
-        vol.Required(ATTR_END_TIME): cv.time,
-        vol.Required(ATTR_POWER): vol.All(
-            vol.Coerce(int), vol.Range(min=-MAX_POWER_VALUE, max=MAX_POWER_VALUE)
-        ),
-        vol.Optional(ATTR_DAYS, default=list(DEFAULT_SCHEDULE_DAYS)): vol.All(
-            cv.ensure_list,
-            [vol.In(WEEKDAY_MAP.keys())],
-        ),
-        vol.Optional(ATTR_ENABLE, default=True): cv.boolean,
-    }
-)
-
-SCHEDULE_ITEM_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_SCHEDULE_SLOT): vol.All(
-            vol.Coerce(int), vol.Range(min=0, max=MAX_TIME_SLOTS - 1)
-        ),
-        vol.Required(ATTR_START_TIME): cv.string,
-        vol.Required(ATTR_END_TIME): cv.string,
-        vol.Optional(ATTR_POWER, default=0): vol.All(
-            vol.Coerce(int), vol.Range(min=-MAX_POWER_VALUE, max=MAX_POWER_VALUE)
-        ),
-        vol.Optional(ATTR_DAYS, default=list(DEFAULT_SCHEDULE_DAYS)): vol.All(
-            cv.ensure_list,
-            [vol.In(WEEKDAY_MAP.keys())],
-        ),
-        vol.Optional(ATTR_ENABLE, default=True): cv.boolean,
-    }
-)
-
-SERVICE_CLEAR_MANUAL_SCHEDULES_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-    }
-)
-
-SERVICE_SET_MANUAL_SCHEDULES_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_SCHEDULES): vol.All(
-            cv.ensure_list,
-            [SCHEDULE_ITEM_SCHEMA],
-        ),
-    }
-)
-
-SERVICE_REQUEST_DATA_SYNC_SCHEMA = vol.Schema(
-    {
-        vol.Optional(ATTR_DEVICE_ID): cv.string,
-    }
-)
-
-
-def _calculate_week_set(days: list[str]) -> int:
-    """Calculate week_set bitmask from list of day names."""
-    week_set = 0
-    for day in days:
-        day_lower = day.lower()
-        if day_lower in WEEKDAY_MAP:
-            week_set |= WEEKDAY_MAP[day_lower]
-    return week_set
 
 
 def _get_device_id_from_call(call: ServiceCall) -> str:
@@ -219,97 +109,6 @@ def _validate_power_for_device(power: int, entry: MarstekConfigEntry) -> None:
     validate_power_for_entry(entry, power, _power_error)
 
 
-def _build_manual_schedule_config(
-    *,
-    schedule_slot: int,
-    start_time_raw: time | str,
-    end_time_raw: time | str,
-    power: int,
-    days: list[str],
-    enable: bool,
-) -> tuple[dict[str, Any], str, str]:
-    """Build manual schedule config and normalized time strings."""
-    start_time_str = _normalize_time_value(start_time_raw, ATTR_START_TIME)
-    end_time_str = _normalize_time_value(end_time_raw, ATTR_END_TIME)
-    _validate_time_range(start_time_str, end_time_str)
-
-    week_set = _calculate_week_set(days)
-    config = build_manual_mode_config(
-        power=power,
-        enable=enable,
-        time_num=schedule_slot,
-        start_time=start_time_str,
-        end_time=end_time_str,
-        week_set=week_set,
-    )
-    return config, start_time_str, end_time_str
-
-
-async def _send_mode_command(
-    udp_client: MarstekUDPClient,
-    host: str,
-    port: int,
-    config: dict[str, Any],
-    *,
-    pause_polling: bool = True,
-) -> None:
-    """Send a mode command with retries.
-
-    Args:
-        udp_client: UDP client for communication
-        host: Device IP address
-        port: Device port
-        config: Mode configuration payload
-        pause_polling: Whether to pause/resume polling (set False for batch ops)
-    """
-    command = build_command(CMD_ES_SET_MODE, {"id": 0, "config": config})
-
-    # Pause polling while sending command (unless caller handles it)
-    if pause_polling:
-        await udp_client.pause_polling(host)
-
-    try:
-        success = False
-        last_error: str | None = None
-
-        for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
-            try:
-                await udp_client.send_request(
-                    command,
-                    host,
-                    port,
-                    timeout=RETRY_TIMEOUT,
-                )
-                _LOGGER.info(
-                    "Successfully sent mode command (attempt %d/%d)",
-                    attempt,
-                    MAX_RETRY_ATTEMPTS,
-                )
-                success = True
-                break
-            except (TimeoutError, OSError, ValueError) as err:
-                last_error = str(err)
-                _LOGGER.warning(
-                    "Failed to send mode command (attempt %d/%d): %s",
-                    attempt,
-                    MAX_RETRY_ATTEMPTS,
-                    err,
-                )
-                if attempt < MAX_RETRY_ATTEMPTS:
-                    await asyncio.sleep(RETRY_DELAY)
-
-        if not success:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="command_failed",
-                translation_placeholders={"error": last_error or "Unknown error"},
-            )
-
-    finally:
-        if pause_polling:
-            await udp_client.resume_polling(host)
-
-
 async def async_set_passive_mode(hass: HomeAssistant, call: ServiceCall) -> None:
     """Handle set_passive_mode service call."""
     device_id = _get_device_id_from_call(call)
@@ -328,7 +127,13 @@ async def async_set_passive_mode(hass: HomeAssistant, call: ServiceCall) -> None
         },
     }
 
-    await _send_mode_command(udp_client, host, port, config)
+    await send_mode_command_with_retries(
+        udp_client,
+        host,
+        port,
+        config,
+        logger=_LOGGER,
+    )
 
     # Refresh coordinator
     await entry.runtime_data.coordinator.async_request_refresh()
@@ -356,7 +161,7 @@ async def async_set_manual_schedule(hass: HomeAssistant, call: ServiceCall) -> N
     _validate_power_for_device(power, entry)
 
     # Normalize times to HH:MM and validate range
-    config, start_time_str, end_time_str = _build_manual_schedule_config(
+    config, start_time_str, end_time_str = build_manual_schedule_config(
         schedule_slot=schedule_slot,
         start_time_raw=start_time,
         end_time_raw=end_time,
@@ -365,7 +170,13 @@ async def async_set_manual_schedule(hass: HomeAssistant, call: ServiceCall) -> N
         enable=enable,
     )
 
-    await _send_mode_command(udp_client, host, port, config)
+    await send_mode_command_with_retries(
+        udp_client,
+        host,
+        port,
+        config,
+        logger=_LOGGER,
+    )
 
     # Refresh coordinator
     await entry.runtime_data.coordinator.async_request_refresh()
@@ -414,7 +225,14 @@ async def async_clear_manual_schedules(hass: HomeAssistant, call: ServiceCall) -
                 week_set=0,
             )
 
-            await _send_mode_command(udp_client, host, port, config, pause_polling=False)
+            await send_mode_command_with_retries(
+                udp_client,
+                host,
+                port,
+                config,
+                pause_polling=False,
+                logger=_LOGGER,
+            )
             _LOGGER.debug(
                 "Cleared manual schedule slot %d/%d for device %s",
                 slot + 1,
@@ -428,30 +246,6 @@ async def async_clear_manual_schedules(hass: HomeAssistant, call: ServiceCall) -
     await entry.runtime_data.coordinator.async_request_refresh()
 
     _LOGGER.info("Cleared all manual schedules for device %s", device_id)
-
-
-def _normalize_time_value(value: time | str, field_name: str) -> str:
-    """Normalize a time value to HH:MM, raising a HA-friendly error."""
-    try:
-        return normalize_time_value(value)
-    except ValidationError as err:
-        raise HomeAssistantError(
-            translation_domain=DOMAIN,
-            translation_key="invalid_time_format",
-            translation_placeholders={"field": field_name, "value": str(value)},
-        ) from err
-
-
-def _validate_time_range(start: str, end: str) -> None:
-    """Validate that end time is after start time."""
-    try:
-        validate_time_range(start, end)
-    except ValidationError as err:
-        raise HomeAssistantError(
-            translation_domain=DOMAIN,
-            translation_key="invalid_time_range",
-            translation_placeholders={"start": start, "end": end},
-        ) from err
 
 
 async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> None:
@@ -474,7 +268,7 @@ async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> 
             power = schedule.get(ATTR_POWER, 0)
             days = schedule.get(ATTR_DAYS, list(DEFAULT_SCHEDULE_DAYS))
             enable = schedule.get(ATTR_ENABLE, True)
-            config, start_time_str, end_time_str = _build_manual_schedule_config(
+            config, start_time_str, end_time_str = build_manual_schedule_config(
                 schedule_slot=schedule_slot,
                 start_time_raw=start_time_raw,
                 end_time_raw=end_time_raw,
@@ -483,7 +277,14 @@ async def async_set_manual_schedules(hass: HomeAssistant, call: ServiceCall) -> 
                 enable=enable,
             )
             _validate_power_for_device(power, entry)
-            await _send_mode_command(udp_client, host, port, config, pause_polling=False)
+            await send_mode_command_with_retries(
+                udp_client,
+                host,
+                port,
+                config,
+                pause_polling=False,
+                logger=_LOGGER,
+            )
 
             _LOGGER.debug(
                 "Set manual schedule slot %d: %s-%s, power=%dW, days=%s, enabled=%s for device %s",

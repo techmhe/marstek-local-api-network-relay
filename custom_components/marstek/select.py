@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.components.select import SelectEntity, SelectEntityDescription
+from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant
@@ -28,70 +25,15 @@ from .const import (
 )
 from .coordinator import MarstekDataUpdateCoordinator
 from .device_info import build_device_info, get_device_identifier
+from .helpers.select_descriptions import (
+    SELECT_ENTITIES,
+    MarstekSelectEntityDescription,
+)
+from .helpers.select_helpers import send_mode_command_with_retries
 from .mode_config import build_mode_config
 from .pymarstek import MarstekUDPClient, build_command
 
 _LOGGER = logging.getLogger(__name__)
-
-# Retry configuration
-MAX_RETRY_ATTEMPTS = 3
-RETRY_TIMEOUT = 5.0
-RETRY_DELAY = 1.0
-
-
-async def _send_mode_command_with_retries(
-    udp_client: MarstekUDPClient,
-    command: str,
-    host: str,
-    port: int,
-    option: str,
-) -> str | None:
-    """Send mode command with retries, returning last error on failure."""
-    for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
-        try:
-            await udp_client.send_request(
-                command,
-                host,
-                port,
-                timeout=RETRY_TIMEOUT,
-            )
-            _LOGGER.info(
-                "Successfully set operating mode to %s (attempt %d/%d)",
-                option,
-                attempt,
-                MAX_RETRY_ATTEMPTS,
-            )
-            return None  # Success
-        except (TimeoutError, OSError, ValueError) as err:
-            _LOGGER.warning(
-                "Failed to set operating mode to %s (attempt %d/%d): %s",
-                option,
-                attempt,
-                MAX_RETRY_ATTEMPTS,
-                err,
-            )
-            if attempt < MAX_RETRY_ATTEMPTS:
-                await asyncio.sleep(RETRY_DELAY)
-            last_error = str(err)
-    return last_error
-
-
-@dataclass(kw_only=True)
-class MarstekSelectEntityDescription(SelectEntityDescription):  # type: ignore[misc]
-    """Marstek select entity description."""
-
-    options_fn: Callable[[], list[str]]
-    value_fn: Callable[[dict[str, Any]], str | None]
-
-
-SELECT_ENTITIES: tuple[MarstekSelectEntityDescription, ...] = (
-    MarstekSelectEntityDescription(
-        key="operating_mode",
-        translation_key="operating_mode",
-        options_fn=lambda: OPERATING_MODES,
-        value_fn=lambda data: data.get("device_mode"),
-    ),
-)
 
 
 async def async_setup_entry(
@@ -198,8 +140,8 @@ class MarstekOperatingModeSelect(
         await self._udp_client.pause_polling(host)
 
         try:
-            last_error = await _send_mode_command_with_retries(
-                self._udp_client, command, host, port, option
+            last_error = await send_mode_command_with_retries(
+                self._udp_client, command, host, port, option, logger=_LOGGER
             )
 
             if last_error is not None:

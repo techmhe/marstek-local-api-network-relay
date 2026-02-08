@@ -30,8 +30,8 @@ from custom_components.marstek.services import (
     SERVICE_SET_MANUAL_SCHEDULE,
     SERVICE_SET_MANUAL_SCHEDULES,
     SERVICE_SET_PASSIVE_MODE,
-    _calculate_week_set,
 )
+from custom_components.marstek.helpers.service_helpers import calculate_week_set
 from custom_components.marstek.pymarstek.validators import (
     ValidationError,
     normalize_time_value,
@@ -42,22 +42,22 @@ DEVICE_IDENTIFIER = format_mac("AA:BB:CC:DD:EE:FF")
 
 
 def test_calculate_week_set() -> None:
-    """Test _calculate_week_set helper function."""
+    """Test calculate_week_set helper function."""
     # Test individual days (mon=1, tue=2, wed=4, thu=8, fri=16, sat=32, sun=64)
-    assert _calculate_week_set(["mon"]) == 1
-    assert _calculate_week_set(["sun"]) == 64
-    assert _calculate_week_set(["sat"]) == 32
+    assert calculate_week_set(["mon"]) == 1
+    assert calculate_week_set(["sun"]) == 64
+    assert calculate_week_set(["sat"]) == 32
 
     # Test all days (1+2+4+8+16+32+64 = 127)
     all_days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-    assert _calculate_week_set(all_days) == 127
+    assert calculate_week_set(all_days) == 127
 
     # Test mixed case (1+2+4 = 7)
-    assert _calculate_week_set(["Mon", "TUE", "wed"]) == 7
+    assert calculate_week_set(["Mon", "TUE", "wed"]) == 7
 
     # Test empty and invalid
-    assert _calculate_week_set([]) == 0
-    assert _calculate_week_set(["invalid"]) == 0
+    assert calculate_week_set([]) == 0
+    assert calculate_week_set(["invalid"]) == 0
 
 
 def test_normalize_time_value() -> None:

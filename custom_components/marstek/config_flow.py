@@ -9,16 +9,10 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import CONF_HOST, CONF_MAC, CONF_PORT
+from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.data_entry_flow import section
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device_registry import format_mac
-from homeassistant.helpers.selector import (
-    BooleanSelector,
-    NumberSelector,
-    NumberSelectorConfig,
-    NumberSelectorMode,
-)
 
 try:
     from homeassistant.helpers.service_info.dhcp import (  # type: ignore[import-not-found]
@@ -64,107 +58,21 @@ from .const import (
 )
 from .device_info import format_device_name
 from .discovery import discover_devices, get_device_info
-
-_LOGGER = logging.getLogger(__name__)
-
-MANUAL_ENTRY_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_HOST): cv.string,
-        vol.Optional(CONF_PORT, default=DEFAULT_UDP_PORT): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=65535)
-        ),
-    }
+from .helpers.flow_helpers import (
+    build_entry_data,
+    collect_configured_macs,
+    format_already_configured_text,
+    get_unique_id_from_device_info,
+    split_devices_by_configured,
+)
+from .helpers.flow_schemas import (
+    build_manual_entry_schema,
+    build_network_schema,
+    build_polling_schema,
+    build_power_schema,
 )
 
-
-def _collect_configured_macs(
-    entries: list[config_entries.ConfigEntry],
-) -> set[str]:
-    """Collect formatted MAC addresses from existing entries."""
-    configured_macs: set[str] = set()
-    for entry in entries:
-        entry_mac = (
-            entry.data.get("ble_mac")
-            or entry.data.get(CONF_MAC)
-            or entry.data.get("wifi_mac")
-        )
-        if entry_mac:
-            configured_macs.add(format_mac(entry_mac))
-    return configured_macs
-
-
-def _device_display_name(device: dict[str, Any]) -> str:
-    """Build a detailed device display name for selection lists."""
-    return (
-        f"{device.get('device_type', 'Unknown')} "
-        f"v{device.get('version', 'Unknown')} "
-        f"({device.get('wifi_name', 'No WiFi')}) "
-        f"- {device.get('ip', 'Unknown')}"
-    )
-
-
-def _split_devices_by_configured(
-    devices: list[dict[str, Any]],
-    configured_macs: set[str],
-) -> tuple[dict[str, str], list[str]]:
-    """Separate device options from already-configured devices."""
-    device_options: dict[str, str] = {}
-    already_configured_names: list[str] = []
-    for i, device in enumerate(devices):
-        device_name = _device_display_name(device)
-        device_mac = (
-            device.get("ble_mac")
-            or device.get("mac")
-            or device.get("wifi_mac")
-        )
-        is_configured = bool(
-            device_mac and format_mac(device_mac) in configured_macs
-        )
-        if is_configured:
-            already_configured_names.append(device_name)
-        else:
-            device_options[str(i)] = device_name
-    return device_options, already_configured_names
-
-
-def _format_already_configured_text(names: list[str]) -> str:
-    """Format already-configured devices for description placeholders."""
-    if not names:
-        return ""
-    description_lines = [f"- {name}" for name in names]
-    return "\n\nAlready configured devices:\n" + "\n".join(description_lines)
-
-
-def _get_unique_id_from_device_info(device_info: dict[str, Any]) -> str | None:
-    """Return formatted unique id from device info, if available."""
-    unique_id_mac = (
-        device_info.get("ble_mac")
-        or device_info.get("mac")
-        or device_info.get("wifi_mac")
-    )
-    if not unique_id_mac:
-        return None
-    try:
-        return format_mac(unique_id_mac)
-    except (TypeError, ValueError):
-        return None
-
-
-def _build_entry_data(host: str, port: int, device_info: dict[str, Any]) -> dict[str, Any]:
-    """Build config entry data from device info."""
-    return {
-        CONF_HOST: host,
-        CONF_PORT: port,
-        CONF_MAC: device_info.get("mac"),
-        "device_type": device_info.get("device_type"),
-        "version": device_info.get("version"),
-        "wifi_name": device_info.get("wifi_name"),
-        "wifi_mac": device_info.get("wifi_mac"),
-        "ble_mac": device_info.get("ble_mac"),
-        "model": device_info.get("model"),
-        "firmware": device_info.get("firmware"),
-    }
-
+_LOGGER = logging.getLogger(__name__)
 
 class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Marstek."""
@@ -185,7 +93,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             # Use BLE-MAC as unique_id for stability (beardhatcode & mik-laj feedback)
             # BLE-MAC is more stable than WiFi MAC and ensures device history continuity
-            formatted_unique_id = _get_unique_id_from_device_info(device)
+            formatted_unique_id = get_unique_id_from_device_info(device)
             if not formatted_unique_id:
                 return self.async_show_form(
                     step_id="user",
@@ -198,7 +106,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             return self.async_create_entry(
                 title=format_device_name(device),
-                data=_build_entry_data(device["ip"], DEFAULT_UDP_PORT, device),
+                data=build_entry_data(device["ip"], DEFAULT_UDP_PORT, device),
             )
 
         # Start broadcast device discovery
@@ -218,12 +126,12 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.info("Discovered %d devices", len(devices))
 
             # Get already configured device MACs for comparison
-            configured_macs = _collect_configured_macs(
+            configured_macs = collect_configured_macs(
                 self._async_current_entries(include_ignore=False)
             )
 
             # Build device options, separating new and already-configured devices
-            device_options, already_configured_names = _split_devices_by_configured(
+            device_options, already_configured_names = split_devices_by_configured(
                 devices, configured_macs
             )
 
@@ -238,7 +146,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Note: The "Already configured devices:" header is embedded in the placeholder
             # value since HA config flows don't support dynamic translation lookups.
             # This is a common pattern in HA integrations for this type of dynamic content.
-            already_configured_text = _format_already_configured_text(
+            already_configured_text = format_already_configured_text(
                 already_configured_names
             )
 
@@ -274,6 +182,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             host = user_input[CONF_HOST]
             port = user_input.get(CONF_PORT, DEFAULT_UDP_PORT)
+            manual_entry_schema = build_manual_entry_schema(DEFAULT_UDP_PORT)
 
             try:
                 # Validate connection by attempting to get device info
@@ -282,16 +191,16 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not device_info:
                     return self.async_show_form(
                         step_id="manual",
-                        data_schema=MANUAL_ENTRY_SCHEMA,
+                        data_schema=manual_entry_schema,
                         errors={"base": "cannot_connect"},
                     )
 
                 # Check if device is already configured
-                formatted_unique_id = _get_unique_id_from_device_info(device_info)
+                formatted_unique_id = get_unique_id_from_device_info(device_info)
                 if not formatted_unique_id:
                     return self.async_show_form(
                         step_id="manual",
-                        data_schema=MANUAL_ENTRY_SCHEMA,
+                        data_schema=manual_entry_schema,
                         errors={"base": "invalid_discovery_info"},
                     )
 
@@ -300,27 +209,27 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 return self.async_create_entry(
                     title=format_device_name(device_info),
-                    data=_build_entry_data(host, port, device_info),
+                    data=build_entry_data(host, port, device_info),
                 )
 
             except (ConnectionError, OSError, TimeoutError) as err:
                 _LOGGER.error("Cannot connect to device at %s:%s: %s", host, port, err)
                 return self.async_show_form(
                     step_id="manual",
-                    data_schema=MANUAL_ENTRY_SCHEMA,
+                    data_schema=manual_entry_schema,
                     errors={"base": "cannot_connect"},
                 )
             except ValueError as err:
                 _LOGGER.error("Invalid response from device at %s:%s: %s", host, port, err)
                 return self.async_show_form(
                     step_id="manual",
-                    data_schema=MANUAL_ENTRY_SCHEMA,
+                    data_schema=manual_entry_schema,
                     errors={"base": "invalid_discovery_info"},
                 )
 
         return self.async_show_form(
             step_id="manual",
-            data_schema=MANUAL_ENTRY_SCHEMA,
+            data_schema=build_manual_entry_schema(DEFAULT_UDP_PORT),
             errors=errors,
         )
 
@@ -416,7 +325,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not device_info:
                     errors["base"] = "cannot_connect"
                 else:
-                    formatted_unique_id = _get_unique_id_from_device_info(device_info)
+                    formatted_unique_id = get_unique_id_from_device_info(device_info)
                     if not formatted_unique_id:
                         errors["base"] = "invalid_discovery_info"
                     else:
@@ -428,7 +337,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                             return self.async_create_entry(
                                 title=f"Marstek {device_info.get('device_type', 'Device')}",
-                                data=_build_entry_data(host, port, device_info),
+                                data=build_entry_data(host, port, device_info),
                             )
 
             except (ConnectionError, OSError, TimeoutError):
@@ -592,7 +501,7 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not device_info:
                 return None, "cannot_connect"
 
-            formatted_unique_id = _get_unique_id_from_device_info(device_info)
+            formatted_unique_id = get_unique_id_from_device_info(device_info)
             if not formatted_unique_id:
                 return None, "invalid_discovery_info"
 
@@ -692,118 +601,22 @@ class MarstekOptionsFlow(config_entries.OptionsFlow):
         )
 
         # Build schema with collapsible sections for better UX
-        polling_schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_POLL_INTERVAL_FAST,
-                    default=current_fast,
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=10,
-                        max=300,
-                        step=5,
-                        unit_of_measurement="seconds",
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_POLL_INTERVAL_MEDIUM,
-                    default=current_medium,
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=30,
-                        max=86400,
-                        step=10,
-                        unit_of_measurement="seconds",
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_POLL_INTERVAL_SLOW,
-                    default=current_slow,
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=60,
-                        max=86400,
-                        step=30,
-                        unit_of_measurement="seconds",
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-            }
+        polling_schema = build_polling_schema(
+            current_fast=current_fast,
+            current_medium=current_medium,
+            current_slow=current_slow,
         )
 
-        network_schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_REQUEST_DELAY,
-                    default=current_delay,
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=1.0,
-                        max=30.0,
-                        step=0.5,
-                        unit_of_measurement="seconds",
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_REQUEST_TIMEOUT,
-                    default=current_timeout,
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=5.0,
-                        max=60.0,
-                        step=1.0,
-                        unit_of_measurement="seconds",
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_FAILURE_THRESHOLD,
-                    default=current_failure_threshold,
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=1,
-                        max=10,
-                        step=1,
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-            }
+        network_schema = build_network_schema(
+            current_delay=current_delay,
+            current_timeout=current_timeout,
+            current_failure_threshold=current_failure_threshold,
         )
 
-        power_schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_ACTION_CHARGE_POWER,
-                    default=current_charge_power,
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=-5000,
-                        max=0,
-                        step=50,
-                        unit_of_measurement="W",
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_ACTION_DISCHARGE_POWER,
-                    default=current_discharge_power,
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=0,
-                        max=5000,
-                        step=50,
-                        unit_of_measurement="W",
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_SOCKET_LIMIT,
-                    default=current_socket_limit,
-                ): BooleanSelector(),
-            }
+        power_schema = build_power_schema(
+            current_charge_power=current_charge_power,
+            current_discharge_power=current_discharge_power,
+            current_socket_limit=current_socket_limit,
         )
 
         return self.async_show_form(

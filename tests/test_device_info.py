@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.marstek.binary_sensor import BINARY_SENSORS, MarstekBinarySensor
+from custom_components.marstek.binary_sensor import MarstekBinarySensor
+from custom_components.marstek.helpers.binary_sensor_descriptions import BINARY_SENSORS
 from custom_components.marstek.device_info import build_device_info, get_device_identifier
 
 

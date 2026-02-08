@@ -9,12 +9,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.marstek.sensor import (
-    _api_success_rate_sensor,
-    _command_success_rate,
-    _command_stats_attributes,
-    _overall_command_stats_attributes,
-    _overall_command_success_rate,
+from custom_components.marstek.helpers.sensor_descriptions import _api_success_rate_sensor
+from custom_components.marstek.helpers.sensor_stats import (
+    command_stats_attributes,
+    command_success_rate,
+    overall_command_stats_attributes,
+    overall_command_success_rate,
 )
 
 from tests.conftest import create_mock_client, patch_marstek_integration
@@ -581,10 +581,10 @@ def test_command_success_rate_calculates_percentage() -> None:
         ),
     )
 
-    rate = _command_success_rate(coordinator, "ES.GetStatus")
+    rate = command_success_rate(coordinator, "ES.GetStatus")
     assert rate == 75.0
 
-    attrs = _command_stats_attributes(coordinator, "ES.GetStatus")
+    attrs = command_stats_attributes(coordinator, "ES.GetStatus")
     assert attrs == {
         "total_attempts": 4,
         "total_success": 3,
@@ -602,10 +602,10 @@ def test_command_success_rate_returns_none_with_no_attempts() -> None:
         ),
     )
 
-    rate = _command_success_rate(coordinator, "ES.GetStatus")
+    rate = command_success_rate(coordinator, "ES.GetStatus")
     assert rate is None
 
-    attrs = _command_stats_attributes(coordinator, "ES.GetStatus")
+    attrs = command_stats_attributes(coordinator, "ES.GetStatus")
     assert attrs == {
         "total_attempts": 0,
         "total_success": 0,
@@ -646,10 +646,10 @@ def test_overall_command_success_rate() -> None:
         ),
     )
 
-    rate = _overall_command_success_rate(coordinator)
+    rate = overall_command_success_rate(coordinator)
     assert rate == 80.0
 
-    attrs = _overall_command_stats_attributes(coordinator)
+    attrs = overall_command_stats_attributes(coordinator)
     assert attrs == {
         "total_attempts": 10,
         "total_success": 8,
