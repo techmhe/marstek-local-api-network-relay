@@ -30,7 +30,7 @@ from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import MarstekConfigEntry
-from .const import OPERATING_MODES
+from .const import OPERATING_MODES, device_supports_pv
 from .coordinator import MarstekDataUpdateCoordinator
 from .device_info import build_device_info, get_device_identifier
 from .pymarstek.const import (
@@ -77,7 +77,7 @@ def _value_from_data(key: str, data: dict[str, Any]) -> StateType:
 
 
 def _exists_key_with_value(key: str, data: dict[str, Any]) -> bool:
-    return key in data and data.get(key) is not None
+    return key in data
 
 
 def _command_success_rate(
@@ -623,10 +623,20 @@ async def async_setup_entry(
     _LOGGER.info("Setting up Marstek sensors: %s", device_ip)
 
     data = coordinator.data or {}
+    data_for_exists = dict(data)
+    supports_pv = device_supports_pv(device_info.get("device_type"))
+
+    for key in ("ongrid_power", "offgrid_power", "bat_cap"):
+        data_for_exists.setdefault(key, None)
+
+    if supports_pv:
+        data_for_exists.setdefault("pv_power", None)
+        for description in PV_SENSORS:
+            data_for_exists.setdefault(description.key, None)
 
     sensors: list[MarstekSensor] = []
     for description in (*SENSORS, *PV_SENSORS, *API_STABILITY_SENSORS):
-        if description.exists_fn(data):
+        if description.exists_fn(data_for_exists):
             sensors.append(
                 MarstekSensor(
                     coordinator,

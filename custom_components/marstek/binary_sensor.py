@@ -114,9 +114,13 @@ async def async_setup_entry(
     coordinator = config_entry.runtime_data.coordinator
     device_info = config_entry.runtime_data.device_info
     data = coordinator.data or {}
+    data_for_exists = dict(data)
+
+    for description in BINARY_SENSORS:
+        data_for_exists.setdefault(description.key, None)
 
     async_add_entities(
         MarstekBinarySensor(coordinator, device_info, description, config_entry)
         for description in BINARY_SENSORS
-        if description.exists_fn(data)
+        if description.exists_fn(data_for_exists)
     )
