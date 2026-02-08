@@ -15,7 +15,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DATA_UDP_CLIENT, DEFAULT_UDP_PORT, DOMAIN, PLATFORMS
+from .const import DATA_SUPPRESS_RELOADS, DATA_UDP_CLIENT, DEFAULT_UDP_PORT, DOMAIN, PLATFORMS
 from .coordinator import MarstekDataUpdateCoordinator
 from .pymarstek import MarstekUDPClient, get_es_mode
 from .scanner import MarstekScanner
@@ -332,4 +332,11 @@ async def async_remove_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> 
 
 async def _async_update_listener(hass: HomeAssistant, entry: MarstekConfigEntry) -> None:
     """Handle options updates by reloading the entry."""
+    suppress = hass.data.get(DOMAIN, {}).get(DATA_SUPPRESS_RELOADS)
+    if suppress and entry.entry_id in suppress:
+        suppress.discard(entry.entry_id)
+        _LOGGER.debug(
+            "Skipping reload for entry %s (metadata-only update)", entry.entry_id
+        )
+        return
     await hass.config_entries.async_reload(entry.entry_id)

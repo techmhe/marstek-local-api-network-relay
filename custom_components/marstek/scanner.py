@@ -13,11 +13,12 @@ from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import discovery_flow
 from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import DOMAIN
+from .const import DATA_SUPPRESS_RELOADS, DOMAIN
 from .discovery import discover_devices
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,6 +32,15 @@ MIN_SCAN_INTERVAL = timedelta(seconds=30)
 
 # Minimum time between discovery flows for unconfigured devices
 UNCONFIGURED_DISCOVERY_DEBOUNCE = timedelta(hours=1)
+
+_DEVICE_METADATA_FIELDS: tuple[str, ...] = (
+    "device_type",
+    "version",
+    "wifi_name",
+    "wifi_mac",
+    "model",
+    "firmware",
+)
 
 
 def _build_discovery_flow_data(device: dict[str, Any]) -> dict[str, Any]:
@@ -229,6 +239,7 @@ class MarstekScanner:
                     stored_ip,
                     new_ip,
                 )
+                self._maybe_update_entry_metadata(entry, matched_device)
                 if new_ip and new_ip != stored_ip:
                     _LOGGER.info(
                         "Scanner detected IP change for device %s: %s -> %s",
@@ -257,6 +268,85 @@ class MarstekScanner:
             self._trigger_unconfigured_discovery(devices, configured_macs)
         except Exception as err:
             _LOGGER.debug("Scanner discovery failed: %s", err)
+
+    def _maybe_update_entry_metadata(
+        self,
+        entry: config_entries.ConfigEntry,
+        device: dict[str, Any],
+    ) -> None:
+        """Update stored device metadata if discovery reports changes."""
+        updates: dict[str, Any] = {}
+        for key in _DEVICE_METADATA_FIELDS:
+            new_value = device.get(key)
+            if new_value is None:
+                continue
+            if isinstance(new_value, str) and not new_value.strip():
+                continue
+            if entry.data.get(key) != new_value:
+                updates[key] = new_value
+
+        if not updates:
+            return
+
+        _LOGGER.info(
+            "Scanner: Updating device metadata for %s: %s",
+            entry.title,
+            ", ".join(f"{key}={value}" for key, value in updates.items()),
+        )
+
+        self._mark_suppress_reload(entry.entry_id)
+        self._hass.config_entries.async_update_entry(
+            entry, data={**entry.data, **updates}
+        )
+
+        if entry.state == ConfigEntryState.LOADED and hasattr(entry, "runtime_data"):
+            entry.runtime_data.device_info.update(updates)
+            entry.runtime_data.coordinator.async_set_updated_data(
+                entry.runtime_data.coordinator.data or {}
+            )
+
+        self._update_device_registry(entry, updates)
+
+    def _mark_suppress_reload(self, entry_id: str) -> None:
+        """Suppress a reload for a metadata-only config entry update."""
+        domain_data = self._hass.data.setdefault(DOMAIN, {})
+        suppress: set[str] = domain_data.setdefault(DATA_SUPPRESS_RELOADS, set())
+        suppress.add(entry_id)
+
+    def _update_device_registry(
+        self,
+        entry: config_entries.ConfigEntry,
+        updates: dict[str, Any],
+    ) -> None:
+        """Update device registry metadata when version/model changes."""
+        device_identifier_raw = (
+            entry.data.get("ble_mac")
+            or entry.data.get("mac")
+            or entry.data.get("wifi_mac")
+        )
+        if not device_identifier_raw:
+            return
+
+        try:
+            device_identifier = format_mac(device_identifier_raw)
+        except (TypeError, ValueError):
+            return
+
+        device_registry = dr.async_get(self._hass)
+        device = device_registry.async_get_device(
+            identifiers={(DOMAIN, device_identifier)}
+        )
+        if not device:
+            return
+
+        update_kwargs: dict[str, Any] = {}
+        if "version" in updates:
+            update_kwargs["sw_version"] = str(updates["version"])
+        if "device_type" in updates:
+            update_kwargs["model"] = updates["device_type"]
+
+        if update_kwargs:
+            device_registry.async_update_device(device.id, **update_kwargs)
 
     def _find_device_by_ble_mac(
         self, devices: list[dict[str, Any]], stored_ble_mac: str, entry_title: str

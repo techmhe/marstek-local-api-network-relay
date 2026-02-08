@@ -11,7 +11,10 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import format_mac
 
+from custom_components.marstek import MarstekRuntimeData
 from custom_components.marstek.const import DOMAIN
 from custom_components.marstek.scanner import MarstekScanner
 
@@ -146,7 +149,7 @@ async def test_scanner_scan_impl_discovers_devices_no_ip_change(
                         "ip": "1.2.3.4",  # Same IP as stored
                         "ble_mac": "AA:BB:CC:DD:EE:FF",
                         "device_type": "Venus",
-                        "version": "3",
+                        "version": 3,
                     }
                 ]
             ),
@@ -179,7 +182,7 @@ async def test_scanner_scan_impl_discovers_devices_ip_changed(
                         "ip": "5.6.7.8",  # Different IP!
                         "ble_mac": "AA:BB:CC:DD:EE:FF",
                         "device_type": "Venus",
-                        "version": "3",
+                        "version": 3,
                         "wifi_name": "TestWifi",
                         "wifi_mac": "11:22:33:44:55:66",
                         "mac": "AA:AA:AA:AA:AA:AA",
@@ -232,6 +235,65 @@ async def test_scanner_scan_impl_entry_in_setup_retry(
 
         # Should still detect IP change for SETUP_RETRY entries
         mock_create_flow.assert_called_once()
+
+
+async def test_scanner_updates_device_metadata_and_registry(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test scanner updates metadata, runtime data, and device registry."""
+    mock_config_entry.add_to_hass(hass)
+    mock_config_entry.mock_state(hass, ConfigEntryState.LOADED)
+
+    coordinator = MagicMock()
+    coordinator.data = {"battery_soc": 50}
+    coordinator.async_set_updated_data = MagicMock()
+    mock_config_entry.runtime_data = MarstekRuntimeData(
+        coordinator=coordinator,
+        device_info=dict(mock_config_entry.data),
+    )
+
+    device_registry = dr.async_get(hass)
+    device_registry.async_get_or_create(
+        config_entry_id=mock_config_entry.entry_id,
+        identifiers={(DOMAIN, format_mac("AA:BB:CC:DD:EE:FF"))},
+        manufacturer="Marstek",
+        model="Venus",
+        sw_version="3",
+        name="Marstek Venus",
+    )
+
+    scanner = MarstekScanner(hass)
+
+    with patch(
+        "custom_components.marstek.scanner.discover_devices",
+        AsyncMock(
+            return_value=[
+                {
+                    "ip": "1.2.3.4",
+                    "ble_mac": "AA:BB:CC:DD:EE:FF",
+                    "device_type": "VenusE 3.0",
+                    "version": 147,
+                    "wifi_name": "AirPort-38",
+                    "wifi_mac": "11:22:33:44:55:66",
+                    "model": "VenusE 3.0",
+                    "firmware": "147",
+                }
+            ]
+        ),
+    ):
+        await scanner._async_scan_impl()
+
+    assert mock_config_entry.data["version"] == 147
+    assert mock_config_entry.runtime_data.device_info["version"] == 147
+    assert mock_config_entry.runtime_data.device_info["wifi_name"] == "AirPort-38"
+    coordinator.async_set_updated_data.assert_called_once_with(coordinator.data)
+
+    device = device_registry.async_get_device(
+        identifiers={(DOMAIN, format_mac("AA:BB:CC:DD:EE:FF"))}
+    )
+    assert device is not None
+    assert device.sw_version == "147"
+    assert device.model == "VenusE 3.0"
 
 
 async def test_scanner_scan_impl_skips_not_loaded_entry(
