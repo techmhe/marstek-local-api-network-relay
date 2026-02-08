@@ -122,7 +122,7 @@ async def discover_devices(
     # Send discovery broadcasts
     for addr in broadcast_addrs:
         try:
-            sock.sendto(message, (addr, port))
+            await loop.sock_sendto(sock, message, (addr, port))
             _LOGGER.debug("Sent discovery to %s:%d", addr, port)
         except OSError as err:
             _LOGGER.warning("Failed to send to %s:%d: %s", addr, port, err)
@@ -237,7 +237,7 @@ async def get_device_info(
 
     try:
         # Send request directly to device
-        sock.sendto(message, (host, port))
+        await loop.sock_sendto(sock, message, (host, port))
         _LOGGER.debug("Sent GetDevice request to %s:%d", host, port)
 
         # Wait for response

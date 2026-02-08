@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import socket
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -252,6 +252,7 @@ class TestDiscoverDevices:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.return_value = 0
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -308,6 +309,7 @@ class TestDiscoverDevices:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -350,6 +352,7 @@ class TestDiscoverDevices:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -386,6 +389,7 @@ class TestDiscoverDevices:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -429,6 +433,7 @@ class TestDiscoverDevices:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -453,6 +458,7 @@ class TestDiscoverDevices:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.return_value = 0
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -495,6 +501,7 @@ class TestDiscoverDevices:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -544,6 +551,7 @@ class TestGetDeviceInfo:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -572,6 +580,7 @@ class TestGetDeviceInfo:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -586,11 +595,11 @@ class TestGetDeviceInfo:
         from custom_components.marstek.discovery import get_device_info
         
         mock_socket = MagicMock()
-        mock_socket.sendto.side_effect = OSError("Network error")
         
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock(side_effect=OSError("Network error"))
                 loop.time.return_value = 0
                 mock_loop.return_value = loop
                 
@@ -627,6 +636,7 @@ class TestGetDeviceInfo:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -658,6 +668,7 @@ class TestGetDeviceInfo:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -697,6 +708,7 @@ class TestGetDeviceInfo:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -736,6 +748,7 @@ class TestGetDeviceInfo:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -751,12 +764,11 @@ class TestGetDeviceInfo:
         from custom_components.marstek.discovery import get_device_info
         
         mock_socket = MagicMock()
-        # First call to sendto fails, triggering the socket error path
-        mock_socket.sendto.side_effect = OSError("Connection refused")
         
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock(side_effect=OSError("Connection refused"))
                 loop.time.return_value = 0
                 mock_loop.return_value = loop
                 
@@ -777,8 +789,6 @@ class TestDiscoverDevicesEdgeCases:
         
         mock_socket = MagicMock()
         mock_socket.getsockname.return_value = ("0.0.0.0", 12345)
-        # sendto fails with OSError
-        mock_socket.sendto.side_effect = OSError("Network unreachable")
         
         time_calls = [0]
         def time_side_effect() -> float:
@@ -791,6 +801,7 @@ class TestDiscoverDevicesEdgeCases:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock(side_effect=OSError("Network unreachable"))
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -828,6 +839,7 @@ class TestDiscoverDevicesEdgeCases:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -856,6 +868,7 @@ class TestDiscoverDevicesEdgeCases:
         with patch("socket.socket", return_value=mock_socket):
             with patch("asyncio.get_running_loop") as mock_loop:
                 loop = MagicMock()
+                loop.sock_sendto = AsyncMock()
                 loop.time.side_effect = time_side_effect
                 loop.sock_recvfrom = mock_recvfrom
                 mock_loop.return_value = loop
@@ -864,7 +877,7 @@ class TestDiscoverDevicesEdgeCases:
                     await discover_devices(timeout=0.5)
         
         # Should have sent to all broadcast addresses
-        assert mock_socket.sendto.call_count == 3
+        assert loop.sock_sendto.call_count == 3
 
     def test_psutil_import_error(self) -> None:
         """Test handling when psutil module import raises ImportError."""

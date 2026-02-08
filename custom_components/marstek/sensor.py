@@ -13,7 +13,6 @@ from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import MarstekConfigEntry
-from .const import device_supports_pv
 from .coordinator import MarstekDataUpdateCoordinator
 from .device_info import build_device_info, get_device_identifier
 from .helpers.sensor_descriptions import (
@@ -78,16 +77,6 @@ async def async_setup_entry(
 
     data = coordinator.data or {}
     data_for_exists = dict(data)
-    supports_pv = device_supports_pv(device_info.get("device_type"))
-
-    for key in ("ongrid_power", "offgrid_power", "bat_cap"):
-        data_for_exists.setdefault(key, None)
-
-    if supports_pv:
-        data_for_exists.setdefault("pv_power", None)
-        for description in PV_SENSORS:
-            data_for_exists.setdefault(description.key, None)
-
     sensors: list[MarstekSensor] = []
     for description in (*SENSORS, *PV_SENSORS, *API_STABILITY_SENSORS):
         if description.exists_fn(data_for_exists):
