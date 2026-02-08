@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.device_registry import format_mac
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.marstek.const import DATA_UDP_CLIENT, DOMAIN
+from custom_components.marstek import _async_update_listener
+from custom_components.marstek.const import DATA_SUPPRESS_RELOADS, DATA_UDP_CLIENT, DOMAIN
 
 from tests.conftest import create_mock_client, patch_marstek_integration
 
@@ -42,6 +45,33 @@ async def test_setup_and_unload(
 
     assert mock_config_entry.state == ConfigEntryState.NOT_LOADED
     assert DOMAIN not in hass.data
+
+
+async def test_update_listener_suppresses_reload(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test update listener skips reload when suppression is set."""
+    mock_config_entry.add_to_hass(hass)
+    hass.data[DOMAIN] = {DATA_SUPPRESS_RELOADS: {mock_config_entry.entry_id}}
+
+    with patch.object(hass.config_entries, "async_reload", AsyncMock()) as mock_reload:
+        await _async_update_listener(hass, mock_config_entry)
+
+    mock_reload.assert_not_called()
+    assert mock_config_entry.entry_id not in hass.data[DOMAIN][DATA_SUPPRESS_RELOADS]
+
+
+async def test_update_listener_triggers_reload_when_not_suppressed(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test update listener reloads entry when not suppressed."""
+    mock_config_entry.add_to_hass(hass)
+    hass.data.setdefault(DOMAIN, {})
+
+    with patch.object(hass.config_entries, "async_reload", AsyncMock()) as mock_reload:
+        await _async_update_listener(hass, mock_config_entry)
+
+    mock_reload.assert_called_once_with(mock_config_entry.entry_id)
 
 
 async def test_setup_connection_failure_triggers_retry(
