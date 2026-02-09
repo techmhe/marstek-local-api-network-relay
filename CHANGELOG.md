@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0-rc6] - 2026-02-09
+
+### Added
+- API command stability sensors
+- Device metadata updates from discovery
+
+### Changed
+- Increased max duration option ranges
+
+### Fixed
+- Standardized sensor existence checks
+
+### Maintenance
+- Refined discovery/service error handling
+- Refactored UDP operations to asyncio loop
+- Kept services registered for integration lifetime
+- Organized code into helper modules
+- Expanded tests and snapshots; improved reliability and coverage
+- Clarified failure threshold documentation
+
 ## [1.0.0-rc5] - 2026-02-07
 
 ### Added
