@@ -1,6 +1,8 @@
 name: Bug report
 description: Report a problem with the Marstek integration
 title: "Bug: "
+labels:
+  - bug
 assignees:
   - taurgis
 body:

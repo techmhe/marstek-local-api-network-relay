@@ -1,0 +1,84 @@
+name: Auto label issues
+
+on:
+  issues:
+    types:
+      - opened
+
+permissions:
+  issues: write
+
+jobs:
+  auto-label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            if (!issue || !issue.body) {
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const body = issue.body;
+
+            const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const extractSection = (label) => {
+              const re = new RegExp(
+                `###\\s+${escapeRegExp(label)}\\s*\\r?\\n([\\s\\S]*?)(?=\\r?\\n###\\s|$)` ,
+                'i'
+              );
+              const match = body.match(re);
+              if (!match) {
+                return '';
+              }
+              return match[1].trim();
+            };
+
+            const deviceModel = extractSection('Marstek device model');
+            const firmwareVersion = extractSection('Marstek firmware version');
+
+            const labels = new Set();
+
+            if (deviceModel) {
+              const deviceMatch = deviceModel.match(/\bVenus\s+([ADE])\b/i);
+              if (deviceMatch) {
+                labels.add(`Venus ${deviceMatch[1].toUpperCase()}`);
+              }
+            }
+
+            if (firmwareVersion) {
+              const fwMatch = firmwareVersion.match(/v?\s*(\d+)/i);
+              if (fwMatch) {
+                labels.add(`v${fwMatch[1]}`);
+              }
+            }
+
+            if (labels.size === 0) {
+              return;
+            }
+
+            for (const name of labels) {
+              try {
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name,
+                  color: 'ededed',
+                  description: 'Auto-created from issue form',
+                });
+              } catch (error) {
+                if (error.status !== 422) {
+                  throw error;
+                }
+              }
+            }
+
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: issue.number,
+              labels: Array.from(labels),
+            });
