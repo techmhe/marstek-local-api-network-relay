@@ -74,18 +74,31 @@ def parse_es_status_response(response: dict[str, Any]) -> dict[str, Any]:
             raw_bat_power = None
     else:
         raw_bat_power = None
-    if (
-        raw_bat_power is None
-        and "bat_power" not in result
-        and isinstance(pv_power, (int, float))
-        and isinstance(ongrid_power, (int, float))
-        and (pv_power != 0 or ongrid_power != 0)
-    ):
-        # Fallback when API omits bat_power (Venus A/E devices):
-        # Energy flow: battery + PV = grid export (when discharging to grid)
-        # So: bat_power = pv_power - ongrid_power (API convention: - = discharging)
-        # With pv=0, ongrid=+800 (export): bat_power = -800 (discharging)
-        raw_bat_power = pv_power - ongrid_power
+    if raw_bat_power is None and "bat_power" not in result:
+        if (
+            isinstance(pv_power, (int, float))
+            and isinstance(ongrid_power, (int, float))
+            and (pv_power != 0 or ongrid_power != 0)
+        ):
+            # Fallback when API omits bat_power (Venus A/E devices):
+            # Energy flow: battery + PV = grid export (when discharging to grid)
+            # So: bat_power = pv_power - ongrid_power (API convention: - = discharging)
+            # With pv=0, ongrid=+800 (export): bat_power = -800 (discharging)
+            raw_bat_power = pv_power - ongrid_power
+        elif (
+            isinstance(pv_power, (int, float))
+            and isinstance(ongrid_power, (int, float))
+            and isinstance(offgrid_power, (int, float))
+            and pv_power == 0
+            and ongrid_power == 0
+            and offgrid_power == 0
+        ):
+            # All reported flows are zero; treat as idle instead of keeping stale power.
+            raw_bat_power = 0
+            _get_logger().debug(
+                "ES.GetStatus missing bat_power with zero flows; "
+                "treating battery power as idle"
+            )
     battery_power: float | None
     battery_status: str | None
     if raw_bat_power is None:

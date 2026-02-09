@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -12,6 +13,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.marstek.const import CONF_POLL_INTERVAL_SLOW, DOMAIN
 from custom_components.marstek.coordinator import MarstekDataUpdateCoordinator
+from custom_components.marstek.pymarstek import MarstekUDPClient
 
 
 @pytest.mark.asyncio
@@ -321,4 +323,66 @@ async def test_coordinator_recovers_after_failure(
     assert data["battery_soc"] == 55
     assert coordinator.consecutive_failures == 0
     assert coordinator.last_update_success_time is not None
+
+
+@pytest.mark.asyncio
+async def test_coordinator_idle_fallback_overrides_cached_power(
+    hass: HomeAssistant, mock_config_entry
+):
+    """Test missing bat_power with zero flows overwrites cached battery power."""
+    mock_config_entry.add_to_hass(hass)
+    client = MarstekUDPClient()
+
+    async def mock_send_request(message: str, *args, **kwargs):
+        method = json.loads(message).get("method")
+        if method == "ES.GetMode":
+            return {
+                "id": 1,
+                "result": {"mode": "Auto", "bat_soc": 10, "ongrid_power": 0},
+            }
+        if method == "ES.GetStatus":
+            return {
+                "id": 2,
+                "result": {
+                    "bat_soc": 10,
+                    "pv_power": 0,
+                    "ongrid_power": 0,
+                    "offgrid_power": 0,
+                },
+            }
+        if method == "EM.GetStatus":
+            return {
+                "id": 3,
+                "result": {
+                    "ct_state": 1,
+                    "a_power": 0,
+                    "b_power": 0,
+                    "c_power": 0,
+                    "total_power": 0,
+                },
+            }
+        if method == "PV.GetStatus":
+            return {"id": 4, "result": {"pv_power": 0}}
+        if method == "Wifi.GetStatus":
+            return {"id": 5, "result": {}}
+        if method == "Bat.GetStatus":
+            return {"id": 6, "result": {}}
+        return {"id": 0, "result": {}}
+
+    with patch.object(client, "send_request", side_effect=mock_send_request):
+        with patch("asyncio.sleep", AsyncMock()):
+            coordinator = MarstekDataUpdateCoordinator(
+                hass,
+                mock_config_entry,
+                client,
+                "1.2.3.4",
+            )
+            coordinator.data = {
+                "battery_power": 500,
+                "battery_status": "discharging",
+            }
+            result = await coordinator._async_update_data()
+
+    assert result["battery_power"] == 0
+    assert result["battery_status"] == "idle"
 

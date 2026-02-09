@@ -709,6 +709,24 @@ class TestParseEsStatusResponse:
         assert result["battery_power"] is None
         assert result["battery_status"] is None
 
+    def test_parse_missing_bat_power_zero_flows_sets_idle(self):
+        """Test missing bat_power with all zero flows sets idle battery power."""
+        response = {
+            "id": 1,
+            "result": {
+                "bat_soc": 55,
+                # bat_power omitted by device
+                "pv_power": 0,
+                "ongrid_power": 0,
+                "offgrid_power": 0,
+            },
+        }
+
+        result = parse_es_status_response(response)
+
+        assert result["battery_power"] == 0
+        assert result["battery_status"] == "idle"
+
     def test_parse_bat_power_none_keeps_missing(self):
         """Test bat_power None remains unset to preserve previous values."""
         response = {
