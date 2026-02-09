@@ -218,6 +218,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
     """Set up Marstek from a config entry."""
     _LOGGER.info("Setting up Marstek config entry: %s", entry.title)
 
+    await async_setup_services(hass)
+
     # Initialize scanner (only once, regardless of number of config entries)
     # Scanner will detect IP changes and update config entries via config flow
     scanner = MarstekScanner.async_get(hass)

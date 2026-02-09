@@ -109,6 +109,7 @@ async def test_reload_entry(
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
         assert mock_config_entry.state == ConfigEntryState.LOADED
+        assert hass.services.has_service(DOMAIN, "set_passive_mode")
 
         # Reload
         await hass.config_entries.async_reload(mock_config_entry.entry_id)
@@ -118,6 +119,7 @@ async def test_reload_entry(
         assert (
             hass.states.get("sensor.venus_battery_level") is not None
         )
+        assert hass.services.has_service(DOMAIN, "set_passive_mode")
 
 
 async def test_services_registered_during_setup(
