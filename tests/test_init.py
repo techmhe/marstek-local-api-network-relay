@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.device_registry import format_mac
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -13,7 +14,11 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.marstek import _async_update_listener
 from custom_components.marstek.const import DATA_SUPPRESS_RELOADS, DATA_UDP_CLIENT, DOMAIN
 
-from tests.conftest import create_mock_client, patch_marstek_integration
+from tests.conftest import (
+    create_mock_client,
+    patch_manual_connection,
+    patch_marstek_integration,
+)
 
 
 async def test_setup_and_unload(
@@ -72,6 +77,116 @@ async def test_update_listener_triggers_reload_when_not_suppressed(
         await _async_update_listener(hass, mock_config_entry)
 
     mock_reload.assert_called_once_with(mock_config_entry.entry_id)
+
+
+async def test_options_update_reloads_and_keeps_services(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test options update reloads entry and services remain registered."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client(
+        status={
+            "device_mode": "auto",
+            "battery_soc": 75,
+        }
+    )
+
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert mock_config_entry.state == ConfigEntryState.LOADED
+        assert hass.services.has_service(DOMAIN, "set_passive_mode")
+
+
+async def test_reconfigure_flow_reloads_and_keeps_services(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test reconfigure flow reloads entry and services remain registered."""
+    mock_config_entry.add_to_hass(hass)
+
+    client = create_mock_client(
+        status={
+            "device_mode": "auto",
+            "battery_soc": 75,
+        }
+    )
+
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert mock_config_entry.state == ConfigEntryState.LOADED
+        assert hass.services.has_service(DOMAIN, "set_passive_mode")
+
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": "reconfigure",
+                "entry_id": mock_config_entry.entry_id,
+            },
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "reconfigure_confirm"
+
+        device_info = {
+            "ip": "192.168.1.200",
+            "ble_mac": "AA:BB:CC:DD:EE:FF",
+            "mac": "AA:BB:CC:DD:EE:FF",
+            "device_type": "Venus",
+            "version": "3.0",
+            "wifi_name": "marstek",
+            "wifi_mac": "11:22:33:44:55:66",
+            "model": "Venus",
+            "firmware": "3.0",
+        }
+
+        original_schedule_reload = hass.config_entries.async_schedule_reload
+        with (
+            patch_manual_connection(device_info=device_info),
+            patch.object(
+                hass.config_entries,
+                "async_schedule_reload",
+                wraps=original_schedule_reload,
+            ) as mock_schedule_reload,
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                user_input={"host": "192.168.1.200", "port": 30000},
+            )
+
+            assert result["type"] == FlowResultType.ABORT
+            assert result["reason"] == "reconfigure_successful"
+            await hass.async_block_till_done()
+
+        mock_schedule_reload.assert_called_once_with(mock_config_entry.entry_id)
+        assert (
+            hass.config_entries.async_get_entry(mock_config_entry.entry_id).data["host"]
+            == "192.168.1.200"
+        )
+        assert hass.services.has_service(DOMAIN, "set_passive_mode")
+
+        original_reload = hass.config_entries.async_reload
+
+        async def _reload(entry_id: str) -> bool:
+            return await original_reload(entry_id)
+
+        with patch.object(
+            hass.config_entries,
+            "async_reload",
+            AsyncMock(side_effect=_reload),
+        ) as mock_reload:
+            hass.config_entries.async_update_entry(
+                mock_config_entry,
+                options={"poll_interval_fast": 31},
+            )
+            await hass.async_block_till_done()
+
+        mock_reload.assert_called_once_with(mock_config_entry.entry_id)
+        assert mock_config_entry.state == ConfigEntryState.LOADED
+        assert hass.services.has_service(DOMAIN, "set_passive_mode")
 
 
 async def test_setup_connection_failure_triggers_retry(
