@@ -34,7 +34,7 @@ jobs:
         run: python -m mypy --strict custom_components/marstek/
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short --cov=custom_components/marstek --cov-report=term-missing
+        run: pytest tests/ -v --tb=short --cov=custom_components/marstek --cov-report=term-missing --cov-fail-under=95
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4

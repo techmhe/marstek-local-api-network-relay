@@ -10,6 +10,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.marstek.const import DOMAIN
+from custom_components.marstek.device_info import get_device_identifier
 from custom_components.marstek.helpers.sensor_descriptions import _api_success_rate_sensor
 from custom_components.marstek.helpers.sensor_stats import (
     command_stats_attributes,
@@ -263,39 +265,45 @@ async def test_wifi_rssi_sensor_not_created_when_missing(
         assert state is None
 
 
-    async def test_api_stability_sensors_disabled_by_default(
-        hass: HomeAssistant, mock_config_entry: MockConfigEntry
-    ) -> None:
-        """Test API stability sensors are created but disabled by default."""
-        mock_config_entry.add_to_hass(hass)
+async def test_api_stability_sensors_disabled_by_default(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test API stability sensors are created but disabled by default."""
+    mock_config_entry.add_to_hass(hass)
 
-        status = {
-            "device_mode": "auto",
-            "battery_soc": 55,
-            "battery_power": 120,
-        }
+    status = {
+        "device_mode": "auto",
+        "battery_soc": 55,
+        "battery_power": 120,
+    }
 
-        client = create_mock_client(status=status)
+    client = create_mock_client(status=status)
 
-        with patch_marstek_integration(client=client):
-            await hass.config_entries.async_setup(mock_config_entry.entry_id)
-            await hass.async_block_till_done()
+    with patch_marstek_integration(client=client):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
 
-            entity_registry = er.async_get(hass)
-            entity_ids = [
-                "sensor.venus_api_success_rate_overall",
-                "sensor.venus_api_success_rate_es_get_mode",
-                "sensor.venus_api_success_rate_es_get_status",
-                "sensor.venus_api_success_rate_em_get_status",
-                "sensor.venus_api_success_rate_pv_get_status",
-                "sensor.venus_api_success_rate_wifi_get_status",
-                "sensor.venus_api_success_rate_bat_get_status",
-                "sensor.venus_api_success_rate_es_set_mode",
-            ]
-            for entity_id in entity_ids:
-                entry = entity_registry.async_get(entity_id)
-                assert entry is not None
-                assert entry.disabled_by is not None
+        entity_registry = er.async_get(hass)
+        device_identifier = get_device_identifier(mock_config_entry.data)
+        entity_keys = [
+            "api_success_rate_overall",
+            "api_success_rate_es_get_mode",
+            "api_success_rate_es_get_status",
+            "api_success_rate_em_get_status",
+            "api_success_rate_pv_get_status",
+            "api_success_rate_wifi_get_status",
+            "api_success_rate_bat_get_status",
+            "api_success_rate_es_set_mode",
+        ]
+        for key in entity_keys:
+            unique_id = f"{device_identifier}_{key}"
+            entity_id = entity_registry.async_get_entity_id(
+                "sensor", DOMAIN, unique_id
+            )
+            assert entity_id is not None
+            entry = entity_registry.async_get(entity_id)
+            assert entry is not None
+            assert entry.disabled_by is not None
 
 
 async def test_ct_connection_sensor_created(
