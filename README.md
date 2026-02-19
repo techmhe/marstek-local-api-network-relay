@@ -49,11 +49,27 @@ A **custom Home Assistant integration** for monitoring and controlling Marstek e
 | Requirement | Version/Details |
 |-------------|-----------------|
 | Home Assistant | Core 2025.10.0+ |
-| Network | Same LAN segment as Marstek devices |
+| Network | HA and device on the same LAN *or* relay server deployed on the device network |
 | Device Config | **OPEN API must be enabled** in the Marstek app |
 | UDP Port | 30000 (default, must be reachable) |
 
 > **Warning**: This integration is currently **not compatible with Venus E2.0** devices. Using this integration with Venus E2.0 may cause disconnection between the device and CT003.
+
+### Cross-network / VLAN setup (relay)
+
+If Home Assistant is on a different network segment than the Marstek device (e.g., a management VLAN vs. an IoT VLAN), deploy the included **relay server** on a machine that *can* reach the device:
+
+```
+Home Assistant (any network)
+      │  HTTP
+      ▼
+Marstek Relay Server  ← small Linux machine on the IoT network
+      │  UDP
+      ▼
+Marstek Device
+```
+
+See [docs/relay.md](docs/relay.md) for the full relay setup guide.
 
 ## Installation
 
@@ -110,6 +126,7 @@ Extended documentation (with screenshots) lives in `docs/`:
 - [Documentation index](docs/README.md)
 - [Installation](docs/installation.md)
 - [Configuration](docs/configuration.md)
+- [Relay server](docs/relay.md) *(cross-network / VLAN setup)*
 - [Options](docs/options.md)
 - [Entities](docs/entities.md)
 - [Energy Dashboard](docs/energy_dashboard.md)

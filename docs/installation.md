@@ -15,6 +15,14 @@
 ## Requirements checklist
 
 - Home Assistant Core **2025.10+**
-- Device and HA on the **same LAN segment**
 - **Open API enabled** in the Marstek app
-- UDP **port 30000** reachable
+- UDP **port 30000** reachable between HA (or the relay host) and the device
+
+## Cross-network / VLAN setup
+
+If Home Assistant is on a **different network segment** than the Marstek device
+(e.g., management VLAN vs. IoT VLAN), you need to deploy the **relay server**
+on a machine that *can* reach the device, and then configure the integration to
+use it.
+
+See the full guide: [Relay server setup](relay.md)

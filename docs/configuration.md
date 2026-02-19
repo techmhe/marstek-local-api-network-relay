@@ -5,7 +5,12 @@
 1. Go to **Settings → Devices & services**.
 2. Click **Add integration**.
 3. Search for **Marstek**.
-4. Select your device from the discovered list and complete setup.
+4. Choose your **connection type**:
+   - **Local network (same network as device)** — HA reaches the device directly
+     via UDP broadcast. Select your device from the discovered list and complete
+     setup.
+   - **Via relay server (different network)** — HA is on a separate VLAN or
+     network segment. See [Relay server](relay.md) for the full setup guide.
 
 If discovery doesn’t find your device (or all discovered devices are already configured), Home Assistant will guide you to **manual entry** where you can enter the device **IP address** (and optionally a **port**, default `30000`).
 
