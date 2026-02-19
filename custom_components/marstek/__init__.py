@@ -13,11 +13,23 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DATA_SUPPRESS_RELOADS, DATA_UDP_CLIENT, DEFAULT_UDP_PORT, DOMAIN, PLATFORMS
+from .const import (
+    CONF_CONNECTION_TYPE,
+    CONF_RELAY_API_KEY,
+    CONF_RELAY_URL,
+    CONNECTION_TYPE_LOCAL,
+    CONNECTION_TYPE_RELAY,
+    DATA_SUPPRESS_RELOADS,
+    DATA_UDP_CLIENT,
+    DEFAULT_UDP_PORT,
+    DOMAIN,
+    PLATFORMS,
+)
 from .coordinator import MarstekDataUpdateCoordinator
-from .pymarstek import MarstekUDPClient, get_es_mode
+from .pymarstek import MarstekClientProtocol, MarstekRelayClient, MarstekUDPClient, get_es_mode
 from .scanner import MarstekScanner
 from .services import async_setup_services
 
@@ -66,11 +78,11 @@ def _clear_connection_issue(hass: HomeAssistant, entry: ConfigEntry) -> None:
         issue_registry.async_delete(DOMAIN, issue_id)
 
 
-def _get_shared_udp_client(hass: HomeAssistant) -> MarstekUDPClient | None:
-    """Get the shared UDP client if it exists."""
+def _get_shared_udp_client(hass: HomeAssistant) -> MarstekClientProtocol | None:
+    """Get the shared UDP/relay client if it exists."""
     client = hass.data.get(DOMAIN, {}).get(DATA_UDP_CLIENT)
     if client is not None:
-        return cast(MarstekUDPClient, client)
+        return cast(MarstekClientProtocol, client)
     return None
 
 
@@ -110,17 +122,29 @@ async def _get_or_create_shared_udp_client(hass: HomeAssistant) -> MarstekUDPCli
     return client
 
 
+async def _create_relay_client(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> MarstekRelayClient:
+    """Create a relay client for the given config entry."""
+    relay_url: str = entry.data.get(CONF_RELAY_URL, "")
+    api_key: str | None = entry.data.get(CONF_RELAY_API_KEY) or None
+    session = async_get_clientsession(hass)
+    client = MarstekRelayClient(relay_url, session, api_key=api_key)
+    await client.async_setup()
+    return client
+
+
 async def _async_verify_device_connection(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    udp_client: MarstekUDPClient,
+    client: MarstekClientProtocol,
     host: str,
     port: int,
 ) -> None:
     """Verify device connectivity using a lightweight API request."""
     try:
         _LOGGER.info("Attempting connection to %s:%s", host, port)
-        await udp_client.send_request(
+        await client.send_request(
             get_es_mode(0),
             host,
             port,
@@ -169,14 +193,14 @@ def _build_device_info_dict(
 async def _async_setup_coordinator(
     hass: HomeAssistant,
     entry: MarstekConfigEntry,
-    udp_client: MarstekUDPClient,
+    client: MarstekClientProtocol,
     device_info: dict[str, Any],
 ) -> MarstekDataUpdateCoordinator:
     """Create and refresh the coordinator, raising ConfigEntryNotReady on failure."""
     coordinator = MarstekDataUpdateCoordinator(
         hass,
         entry,
-        udp_client,
+        client,
         device_info["ip"],
         device_info.get("port", DEFAULT_UDP_PORT),
         is_initial_setup=True,
@@ -220,13 +244,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
 
     await async_setup_services(hass)
 
-    # Initialize scanner (only once, regardless of number of config entries)
-    # Scanner will detect IP changes and update config entries via config flow
-    scanner = MarstekScanner.async_get(hass)
-    await scanner.async_setup()
+    connection_type = entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_LOCAL)
+    is_relay = connection_type == CONNECTION_TYPE_RELAY
 
-    # Use shared UDP client to avoid port conflicts between multiple devices
-    udp_client = await _get_or_create_shared_udp_client(hass)
+    if not is_relay:
+        # Initialize scanner (only once, regardless of number of config entries)
+        # Scanner will detect IP changes and update config entries via config flow
+        scanner = MarstekScanner.async_get(hass)
+        await scanner.async_setup()
 
     stored_ip = entry.data[CONF_HOST]
     stored_port = entry.data.get(CONF_PORT, DEFAULT_UDP_PORT)
@@ -234,10 +259,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
     stored_ble_mac = entry.data.get("ble_mac")
 
     _LOGGER.info(
-        "Starting setup: attempting to connect to device at IP %s (BLE-MAC: %s)",
+        "Starting setup: attempting to connect to device at IP %s (BLE-MAC: %s, mode: %s)",
         stored_ip,
         stored_ble_mac or "unknown",
+        connection_type,
     )
+
+    # Create the appropriate client (relay or direct UDP)
+    if is_relay:
+        try:
+            active_client: MarstekClientProtocol = await _create_relay_client(hass, entry)
+        except (OSError, ValueError) as ex:
+            error_type = type(ex).__name__
+            relay_url = entry.data.get(CONF_RELAY_URL, "unknown")
+            _create_connection_issue(hass, entry, relay_url, str(ex))
+            raise ConfigEntryNotReady(
+                f"Cannot reach relay server at {relay_url} ({error_type}: {ex}). "
+                "Verify the relay server is running and reachable."
+            ) from ex
+        # Store relay client per-entry (not shared)
+        if DOMAIN not in hass.data:
+            hass.data[DOMAIN] = {}
+        hass.data[DOMAIN][DATA_UDP_CLIENT] = active_client
+        entry.async_on_unload(active_client.async_cleanup)
+    else:
+        # Use shared UDP client to avoid port conflicts between multiple devices
+        udp_client = await _get_or_create_shared_udp_client(hass)
+        active_client = udp_client
 
     # Try to connect with stored IP (mik-laj feedback)
     # If we have an IP address in the configuration, we should always connect to that IP
@@ -245,7 +293,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
     await _async_verify_device_connection(
         hass,
         entry,
-        udp_client,
+        active_client,
         stored_ip,
         stored_port,
     )
@@ -258,7 +306,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
     coordinator = await _async_setup_coordinator(
         hass,
         entry,
-        udp_client,
+        active_client,
         device_info_dict,
     )
 

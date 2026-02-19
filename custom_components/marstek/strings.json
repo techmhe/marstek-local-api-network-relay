@@ -8,6 +8,7 @@
     },
     "error": {
       "cannot_connect": "Unable to connect to the device",
+      "cannot_connect_relay": "Unable to reach the relay server. Verify the URL and that the relay server is running.",
       "device_not_found": "Device not found at the specified IP address",
       "discovery_failed": "Failed to discover devices. Please check your network connection and try again.",
       "invalid_discovery_info": "Invalid discovery information received from the device",
@@ -17,13 +18,57 @@
     "step": {
       "user": {
         "data": {
+          "connection_type": "Connection type"
+        },
+        "data_description": {
+          "connection_type": "Choose how Home Assistant connects to the Marstek device"
+        },
+        "description": "Select how you want to connect to your Marstek energy storage device.",
+        "title": "Marstek Energy Storage"
+      },
+      "local_discover": {
+        "data": {
           "device": "Select device"
         },
         "data_description": {
           "device": "Choose the Marstek device you want to add"
         },
         "description": "Select your Marstek energy storage device from the options below.{already_configured}",
-        "title": "Marstek Energy Storage"
+        "title": "Select Marstek Device"
+      },
+      "relay": {
+        "title": "Relay server configuration",
+        "description": "Enter the address of the Marstek relay server running on your IoT network.",
+        "data": {
+          "relay_url": "Relay server URL",
+          "relay_api_key": "API key (optional)"
+        },
+        "data_description": {
+          "relay_url": "Full URL of the relay server, e.g. http://192.168.10.5:8765",
+          "relay_api_key": "API key set with --api-key on the relay server (leave empty if not set)"
+        }
+      },
+      "relay_select": {
+        "data": {
+          "device": "Select device"
+        },
+        "data_description": {
+          "device": "Choose the Marstek device to connect through the relay"
+        },
+        "description": "Select your Marstek energy storage device from the options below.{already_configured}",
+        "title": "Select Marstek Device (via relay)"
+      },
+      "relay_manual": {
+        "title": "Manual relay device setup",
+        "description": "Enter the IP address of the Marstek device as seen from the relay server.",
+        "data": {
+          "host": "Device IP address",
+          "port": "Port"
+        },
+        "data_description": {
+          "host": "IP address of the Marstek device (as reachable from the relay server)",
+          "port": "UDP port (default: 30000)"
+        }
       },
       "manual": {
         "title": "Manual device setup",

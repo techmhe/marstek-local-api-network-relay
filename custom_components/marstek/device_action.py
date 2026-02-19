@@ -35,7 +35,7 @@ from .const import (
 )
 from .mode_config import build_manual_mode_config
 from .power import validate_power_for_entry
-from .pymarstek import MarstekUDPClient, build_command, get_es_status
+from .pymarstek import MarstekClientProtocol, build_command, get_es_status
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ def _calculate_action_timing(entry: ConfigEntry) -> tuple[float, float]:
 
 
 async def _send_action_command(
-    udp_client: MarstekUDPClient,
+    udp_client: MarstekClientProtocol,
     host: str,
     port: int,
     command: str,
@@ -158,7 +158,7 @@ async def _send_action_command(
 
 async def _verify_action_command(
     hass: HomeAssistant,
-    udp_client: MarstekUDPClient,
+    udp_client: MarstekClientProtocol,
     host: str,
     port: int,
     enable: int,
@@ -441,7 +441,7 @@ async def _verify_es_mode_quick(
     port: int,
     enable: int,
     power: int,
-    udp_client: MarstekUDPClient,
+    udp_client: MarstekClientProtocol,
     *,
     request_timeout: float,
 ) -> bool:

@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import Any
 
+import aiohttp
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntryState
@@ -37,13 +38,18 @@ except ImportError:
 from .const import (
     CONF_ACTION_CHARGE_POWER,
     CONF_ACTION_DISCHARGE_POWER,
+    CONF_CONNECTION_TYPE,
     CONF_FAILURE_THRESHOLD,
     CONF_POLL_INTERVAL_FAST,
     CONF_POLL_INTERVAL_MEDIUM,
     CONF_POLL_INTERVAL_SLOW,
+    CONF_RELAY_API_KEY,
+    CONF_RELAY_URL,
     CONF_REQUEST_DELAY,
     CONF_REQUEST_TIMEOUT,
     CONF_SOCKET_LIMIT,
+    CONNECTION_TYPE_LOCAL,
+    CONNECTION_TYPE_RELAY,
     DEFAULT_ACTION_CHARGE_POWER,
     DEFAULT_ACTION_DISCHARGE_POWER,
     DEFAULT_FAILURE_THRESHOLD,
@@ -74,6 +80,51 @@ from .helpers.flow_schemas import (
 
 _LOGGER = logging.getLogger(__name__)
 
+_RELAY_URL_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_RELAY_URL): cv.string,
+        vol.Optional(CONF_RELAY_API_KEY, default=""): cv.string,
+    }
+)
+
+
+async def _discover_via_relay(
+    relay_url: str, api_key: str | None, timeout: float = 15.0
+) -> list[dict[str, Any]]:
+    """Query the relay server for Marstek devices on its local network."""
+    headers: dict[str, str] = {}
+    if api_key:
+        headers["X-API-Key"] = api_key
+    async with aiohttp.ClientSession() as session, session.post(
+        f"{relay_url.rstrip('/')}/api/discover",
+        json={"timeout": 10.0},
+        headers=headers,
+        timeout=aiohttp.ClientTimeout(total=timeout),
+    ) as resp:
+        resp.raise_for_status()
+        data: dict[str, Any] = await resp.json(content_type=None)
+        devices: list[dict[str, Any]] = data.get("devices", [])
+        return devices
+
+
+async def _check_relay_health(
+    relay_url: str, api_key: str | None, timeout: float = 5.0
+) -> bool:
+    """Return True if the relay server responds to a health check."""
+    headers: dict[str, str] = {}
+    if api_key:
+        headers["X-API-Key"] = api_key
+    try:
+        async with aiohttp.ClientSession() as session, session.get(
+            f"{relay_url.rstrip('/')}/health",
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=timeout),
+        ) as resp:
+            return resp.status == 200
+    except (aiohttp.ClientError, TimeoutError):
+        return False
+
+
 class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Marstek."""
 
@@ -81,75 +132,69 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     discovered_devices: list[dict[str, Any]]
     _discovered_ip: str | None = None
     _discovered_port: int | None = None
+    _relay_url: str | None = None
+    _relay_api_key: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Handle the initial step - broadcast device discovery."""
-        if user_input is not None and "device" in user_input:
-            # User has selected a device from the discovered list
-            device_index = int(user_input["device"])
-            device = self.discovered_devices[device_index]
+        """Handle the initial step - choose local or relay connection."""
+        if user_input is not None:
+            connection_type = user_input.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_LOCAL)
+            if connection_type == CONNECTION_TYPE_RELAY:
+                return await self.async_step_relay()
+            # Local connection - proceed with broadcast discovery
+            return await self._async_step_local_discovery()
 
-            # Use BLE-MAC as unique_id for stability (beardhatcode & mik-laj feedback)
-            # BLE-MAC is more stable than WiFi MAC and ensures device history continuity
-            formatted_unique_id = get_unique_id_from_device_info(device)
-            if not formatted_unique_id:
-                return await self.async_step_manual(
-                    errors={"base": "invalid_discovery_info"}
-                )
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONNECTION_TYPE, default=CONNECTION_TYPE_LOCAL
+                    ): vol.In(
+                        {
+                            CONNECTION_TYPE_LOCAL: "Local network (same network as device)",
+                            CONNECTION_TYPE_RELAY: "Via relay server (different network)",
+                        }
+                    )
+                }
+            ),
+        )
 
-            await self.async_set_unique_id(formatted_unique_id)
-            self._abort_if_unique_id_configured()
-
-            return self.async_create_entry(
-                title=format_device_name(device),
-                data=build_entry_data(device["ip"], DEFAULT_UDP_PORT, device),
-            )
-
-        # Start broadcast device discovery
+    async def _async_step_local_discovery(
+        self,
+    ) -> config_entries.ConfigFlowResult:
+        """Run broadcast discovery and redirect to local_discover step."""
         try:
             _LOGGER.info("Starting device discovery")
-
-            # Execute broadcast discovery with retry mechanism
-            # Uses local discovery module (workaround for pymarstek echo issues)
             devices = await self._discover_devices_with_retry()
 
             if not devices:
-                # No devices found, offer manual entry
                 return await self.async_step_manual()
 
-            # Store discovered devices for selection
             self.discovered_devices = devices
             _LOGGER.info("Discovered %d devices", len(devices))
 
-            # Get already configured device MACs for comparison
             configured_macs = collect_configured_macs(
                 self._async_current_entries(include_ignore=False)
             )
-
-            # Build device options, separating new and already-configured devices
             device_options, already_configured_names = split_devices_by_configured(
                 devices, configured_macs
             )
 
-            # If all discovered devices are already configured, show manual entry
             if not device_options:
                 _LOGGER.info("All discovered devices are already configured")
                 return await self.async_step_manual(
                     errors={"base": "all_devices_configured"}
                 )
 
-            # Build description showing already configured devices only
-            # Note: The "Already configured devices:" header is embedded in the placeholder
-            # value since HA config flows don't support dynamic translation lookups.
-            # This is a common pattern in HA integrations for this type of dynamic content.
             already_configured_text = format_already_configured_text(
                 already_configured_names
             )
 
             return self.async_show_form(
-                step_id="user",
+                step_id="local_discover",
                 data_schema=vol.Schema(
                     {vol.Required("device"): vol.In(device_options)}
                 ),
@@ -160,13 +205,169 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         except ConnectionError as err:
             _LOGGER.error("Cannot connect for device discovery: %s", err)
-            # Connection failed, offer manual entry
             return await self.async_step_manual(errors={"base": "cannot_connect"})
 
         except (OSError, TimeoutError, ValueError) as err:
             _LOGGER.error("Device discovery failed: %s", err)
-            # Discovery failed, offer manual entry
             return await self.async_step_manual(errors={"base": "discovery_failed"})
+
+    async def async_step_local_discover(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Handle device selection from local broadcast discovery."""
+        if user_input is not None and "device" in user_input:
+            device_index = int(user_input["device"])
+            device = self.discovered_devices[device_index]
+
+            formatted_unique_id = get_unique_id_from_device_info(device)
+            if not formatted_unique_id:
+                return await self.async_step_manual(
+                    errors={"base": "invalid_discovery_info"}
+                )
+
+            await self.async_set_unique_id(formatted_unique_id)
+            self._abort_if_unique_id_configured()
+
+            entry_data = build_entry_data(device["ip"], DEFAULT_UDP_PORT, device)
+            entry_data[CONF_CONNECTION_TYPE] = CONNECTION_TYPE_LOCAL
+            return self.async_create_entry(
+                title=format_device_name(device),
+                data=entry_data,
+            )
+
+        # Re-run discovery if reached here without devices (e.g. direct navigation)
+        return await self._async_step_local_discovery()
+
+    async def async_step_relay(
+        self,
+        user_input: dict[str, Any] | None = None,
+        errors: dict[str, str] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Handle relay server configuration step."""
+        if errors is None:
+            errors = {}
+
+        if user_input is not None:
+            relay_url = user_input[CONF_RELAY_URL].rstrip("/")
+            api_key = user_input.get(CONF_RELAY_API_KEY) or None
+
+            # Verify relay server is reachable
+            reachable = await _check_relay_health(relay_url, api_key)
+            if not reachable:
+                errors["base"] = "cannot_connect_relay"
+            else:
+                self._relay_url = relay_url
+                self._relay_api_key = api_key
+                return await self._async_step_relay_discovery()
+
+        return self.async_show_form(
+            step_id="relay",
+            data_schema=_RELAY_URL_SCHEMA,
+            errors=errors,
+        )
+
+    async def _async_step_relay_discovery(
+        self,
+    ) -> config_entries.ConfigFlowResult:
+        """Discover devices via the relay server and show selection form."""
+        assert self._relay_url is not None
+
+        try:
+            devices = await _discover_via_relay(self._relay_url, self._relay_api_key)
+        except (aiohttp.ClientError, OSError, TimeoutError) as err:
+            _LOGGER.error("Relay discovery failed: %s", err)
+            return await self.async_step_relay(errors={"base": "cannot_connect_relay"})
+
+        if not devices:
+            return await self.async_step_relay_manual()
+
+        self.discovered_devices = devices
+        _LOGGER.info("Relay discovered %d device(s)", len(devices))
+
+        configured_macs = collect_configured_macs(
+            self._async_current_entries(include_ignore=False)
+        )
+        device_options, already_configured_names = split_devices_by_configured(
+            devices, configured_macs
+        )
+
+        if not device_options:
+            return await self.async_step_relay_manual(
+                errors={"base": "all_devices_configured"}
+            )
+
+        already_configured_text = format_already_configured_text(already_configured_names)
+
+        return self.async_show_form(
+            step_id="relay_select",
+            data_schema=vol.Schema(
+                {vol.Required("device"): vol.In(device_options)}
+            ),
+            description_placeholders={"already_configured": already_configured_text},
+        )
+
+    async def async_step_relay_select(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Handle device selection for relay-discovered devices."""
+        if user_input is not None and "device" in user_input:
+            device_index = int(user_input["device"])
+            device = self.discovered_devices[device_index]
+
+            formatted_unique_id = get_unique_id_from_device_info(device)
+            if not formatted_unique_id:
+                return await self.async_step_relay_manual(
+                    errors={"base": "invalid_discovery_info"}
+                )
+
+            await self.async_set_unique_id(formatted_unique_id)
+            self._abort_if_unique_id_configured()
+
+            entry_data = build_entry_data(device["ip"], DEFAULT_UDP_PORT, device)
+            entry_data[CONF_CONNECTION_TYPE] = CONNECTION_TYPE_RELAY
+            entry_data[CONF_RELAY_URL] = self._relay_url
+            if self._relay_api_key:
+                entry_data[CONF_RELAY_API_KEY] = self._relay_api_key
+            return self.async_create_entry(
+                title=format_device_name(device),
+                data=entry_data,
+            )
+
+        return await self._async_step_relay_discovery()
+
+    async def async_step_relay_manual(
+        self,
+        user_input: dict[str, Any] | None = None,
+        errors: dict[str, str] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Manual device IP entry for relay mode."""
+        if errors is None:
+            errors = {}
+
+        if user_input is not None:
+            assert self._relay_url is not None
+            host = user_input[CONF_HOST]
+            port = int(user_input.get(CONF_PORT, DEFAULT_UDP_PORT))
+
+            entry_data = {
+                CONF_HOST: host,
+                CONF_PORT: port,
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_RELAY,
+                CONF_RELAY_URL: self._relay_url,
+            }
+            if self._relay_api_key:
+                entry_data[CONF_RELAY_API_KEY] = self._relay_api_key
+
+            return self.async_create_entry(
+                title=f"Marstek at {host} (relay)",
+                data=entry_data,
+            )
+
+        return self.async_show_form(
+            step_id="relay_manual",
+            data_schema=build_manual_entry_schema(DEFAULT_UDP_PORT),
+            errors=errors,
+        )
 
     async def async_step_manual(
         self,
@@ -205,9 +406,11 @@ class MarstekConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(formatted_unique_id)
                 self._abort_if_unique_id_configured()
 
+                entry_data = build_entry_data(host, port, device_info)
+                entry_data[CONF_CONNECTION_TYPE] = CONNECTION_TYPE_LOCAL
                 return self.async_create_entry(
                     title=format_device_name(device_info),
-                    data=build_entry_data(host, port, device_info),
+                    data=entry_data,
                 )
 
             except (ConnectionError, OSError, TimeoutError) as err:

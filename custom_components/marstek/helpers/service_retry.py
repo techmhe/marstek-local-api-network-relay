@@ -9,7 +9,7 @@ from typing import Any
 from homeassistant.exceptions import HomeAssistantError
 
 from ..const import CMD_ES_SET_MODE, DOMAIN
-from ..pymarstek import MarstekUDPClient, build_command
+from ..pymarstek import MarstekClientProtocol, build_command
 
 # Retry configuration
 MAX_RETRY_ATTEMPTS = 3
@@ -35,7 +35,7 @@ def _log_failure(logger: logging.Logger, attempt: int, err: Exception) -> None:
 
 
 async def send_mode_command_with_retries(
-    udp_client: MarstekUDPClient,
+    udp_client: MarstekClientProtocol,
     host: str,
     port: int,
     config: dict[str, Any],

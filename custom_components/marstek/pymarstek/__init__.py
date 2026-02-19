@@ -1,5 +1,6 @@
 """Python library for Marstek energy storage communication."""
 
+from .client_protocol import MarstekClientProtocol
 from .command_builder import (
     build_command,
     discover,
@@ -19,6 +20,7 @@ from .data_parser import (
     parse_es_status_response,
     parse_pv_status_response,
 )
+from .relay_client import MarstekRelayClient
 from .udp import MarstekUDPClient
 from .validators import (
     MAX_PASSIVE_DURATION,
@@ -36,6 +38,8 @@ __all__ = [
     "MAX_POWER_VALUE",
     "MAX_TIME_SLOTS",
     "MAX_WEEK_SET",
+    "MarstekClientProtocol",
+    "MarstekRelayClient",
     "MarstekUDPClient",
     "ValidationError",
     "build_command",
