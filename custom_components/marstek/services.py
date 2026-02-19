@@ -33,7 +33,7 @@ from .helpers.service_helpers import (
 from .helpers.service_retry import send_mode_command_with_retries
 from .mode_config import build_manual_mode_config
 from .power import validate_power_for_entry
-from .pymarstek import MAX_TIME_SLOTS, MarstekUDPClient
+from .pymarstek import MAX_TIME_SLOTS, MarstekClientProtocol
 
 if TYPE_CHECKING:
     from . import MarstekConfigEntry
@@ -61,7 +61,7 @@ def _get_device_id_from_call(call: ServiceCall) -> str:
 
 def _get_entry_and_client_from_device_id(
     hass: HomeAssistant, device_id: str
-) -> tuple[MarstekConfigEntry, MarstekUDPClient, str, int]:
+) -> tuple[MarstekConfigEntry, MarstekClientProtocol, str, int]:
     """Get config entry and UDP client from device ID."""
     device_registry = dr.async_get(hass)
     device = device_registry.async_get(device_id)

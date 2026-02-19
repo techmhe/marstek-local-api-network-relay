@@ -1,0 +1,24 @@
+[Unit]
+Description=Marstek Relay Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=marstek
+WorkingDirectory=/opt/marstek-relay
+ExecStart=/opt/marstek-relay/venv/bin/python marstek_relay.py \
+    --host 0.0.0.0 \
+    --port 8765 \
+    --udp-port 30000 \
+    --log-level INFO
+# Optional: set an API key for security
+# ExecStart=/opt/marstek-relay/venv/bin/python marstek_relay.py \
+#     --host 0.0.0.0 \
+#     --port 8765 \
+#     --api-key "your-secret-key-here"
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -7,8 +7,19 @@ from typing import Final
 from homeassistant.const import Platform
 
 DOMAIN: Final = "marstek"
-DATA_UDP_CLIENT: Final = "udp_client"  # Key for shared UDP client in hass.data
+DATA_UDP_CLIENT: Final = "udp_client"  # Key for shared UDP/relay client in hass.data
 DATA_SUPPRESS_RELOADS: Final = "suppress_reload_entry_ids"  # Set of entry_ids to skip reload
+
+# Connection types
+CONNECTION_TYPE_LOCAL: Final = "local"   # Direct UDP to device (same network)
+CONNECTION_TYPE_RELAY: Final = "relay"   # Via relay server (different network)
+
+# Relay server configuration keys
+CONF_CONNECTION_TYPE: Final = "connection_type"
+CONF_RELAY_URL: Final = "relay_url"
+CONF_RELAY_API_KEY: Final = "relay_api_key"
+
+DEFAULT_RELAY_PORT: Final = 8765  # Default HTTP port for the relay server
 
 PLATFORMS: Final[list[Platform]] = [
     Platform.SENSOR,

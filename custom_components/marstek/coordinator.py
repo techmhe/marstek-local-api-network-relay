@@ -34,7 +34,7 @@ from .const import (
     device_supports_pv,
 )
 from .helpers.coordinator_helpers import raise_if_invalid_status
-from .pymarstek import MarstekUDPClient
+from .pymarstek import MarstekClientProtocol
 from .scanner import MarstekScanner
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ class MarstekDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         hass: HomeAssistant,
         config_entry: ConfigEntry,
-        udp_client: MarstekUDPClient,
+        udp_client: MarstekClientProtocol,
         device_ip: str,
         device_port: int = DEFAULT_UDP_PORT,
         *,

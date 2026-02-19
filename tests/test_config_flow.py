@@ -15,12 +15,14 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.marstek.const import (
     CONF_ACTION_CHARGE_POWER,
     CONF_ACTION_DISCHARGE_POWER,
+    CONF_CONNECTION_TYPE,
     CONF_FAILURE_THRESHOLD,
     CONF_POLL_INTERVAL_FAST,
     CONF_POLL_INTERVAL_MEDIUM,
     CONF_POLL_INTERVAL_SLOW,
     CONF_REQUEST_DELAY,
     CONF_REQUEST_TIMEOUT,
+    CONNECTION_TYPE_LOCAL,
     DEFAULT_ACTION_CHARGE_POWER,
     DEFAULT_ACTION_DISCHARGE_POWER,
     DEFAULT_FAILURE_THRESHOLD,
@@ -40,6 +42,15 @@ from tests.conftest import (
     patch_manual_connection,
     patch_marstek_integration,
 )
+
+
+async def _select_local_connection(
+    hass: HomeAssistant, flow_id: str
+) -> dict:
+    """Submit 'local' connection type to get past the first user step."""
+    return await hass.config_entries.flow.async_configure(
+        flow_id, user_input={CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL}
+    )
 
 
 async def test_user_flow_success(hass: HomeAssistant) -> None:
@@ -63,6 +74,12 @@ async def test_user_flow_success(hass: HomeAssistant) -> None:
             DOMAIN, context={"source": "user"}
         )
         assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "user"
+
+        # Select local connection type - triggers discovery
+        result = await _select_local_connection(hass, result["flow_id"])
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "local_discover"
 
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], user_input={"device": "0"}
@@ -76,36 +93,20 @@ async def test_user_flow_success(hass: HomeAssistant) -> None:
 async def test_user_flow_form_snapshot(
     hass: HomeAssistant, snapshot
 ) -> None:
-    """Test user flow form structure snapshot."""
-    devices = [
-        {
-            "ip": "1.2.3.4",
-            "ble_mac": "AA:BB:CC:DD:EE:FF",
-            "mac": "AA:BB:CC:DD:EE:FF",
-            "device_type": "Venus",
-            "version": 3,
-            "wifi_name": "marstek",
-            "wifi_mac": "11:22:33:44:55:66",
-            "model": "Venus",
-            "firmware": "3.0",
-        }
-    ]
-
-    with patch_discovery(devices):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}
-        )
+    """Test user flow connection type form structure snapshot."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
 
     schema = result["data_schema"].schema
-    device_key, validator = next(iter(schema.items()))
-    options = dict(getattr(validator, "container", {}))
+    conn_key, validator = next(iter(schema.items()))
 
     snapshot_data = {
         "type": result["type"],
         "step_id": result["step_id"],
         "errors": result.get("errors"),
         "description_placeholders": result.get("description_placeholders"),
-        "fields": {str(device_key): options},
+        "fields": {str(conn_key): str(type(validator).__name__)},
     }
 
     assert snapshot_data == snapshot
@@ -113,10 +114,13 @@ async def test_user_flow_form_snapshot(
 
 async def test_user_flow_no_devices_redirects_to_manual(hass: HomeAssistant) -> None:
     """Test user flow redirects to manual entry when no devices found."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    assert result["step_id"] == "user"
+
     with patch_discovery([]):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}
-        )
+        result = await _select_local_connection(hass, result["flow_id"])
 
     # Should redirect to manual entry step when no devices found
     assert result["type"] == FlowResultType.FORM
@@ -127,10 +131,13 @@ async def test_manual_flow_form_snapshot(
     hass: HomeAssistant, snapshot
 ) -> None:
     """Test manual entry form structure snapshot."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    assert result["step_id"] == "user"
+
     with patch_discovery([]):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}
-        )
+        result = await _select_local_connection(hass, result["flow_id"])
 
     schema = result["data_schema"].schema
     fields: dict[str, dict[str, object]] = {}
@@ -157,10 +164,13 @@ async def test_user_flow_cannot_connect_redirects_to_manual(
     hass: HomeAssistant,
 ) -> None:
     """Test user flow redirects to manual entry when discovery fails with connection error."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    assert result["step_id"] == "user"
+
     with patch_discovery([], error=OSError("cannot connect")):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}
-        )
+        result = await _select_local_connection(hass, result["flow_id"])
 
     # Should redirect to manual entry with error message
     assert result["type"] == FlowResultType.FORM
@@ -188,6 +198,9 @@ async def test_user_flow_invalid_discovery_info(hass: HomeAssistant) -> None:
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": "user"}
         )
+        assert result["step_id"] == "user"
+        result = await _select_local_connection(hass, result["flow_id"])
+        assert result["step_id"] == "local_discover"
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], user_input={"device": "0"}
         )
@@ -218,6 +231,8 @@ async def test_already_configured_unique_id(
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": "user"}
         )
+        assert result["step_id"] == "user"
+        result = await _select_local_connection(hass, result["flow_id"])
 
     # All discovered devices are already configured, redirects to manual step
     assert result["type"] == FlowResultType.FORM
@@ -260,6 +275,9 @@ async def test_mixed_configured_and_new_devices(
         )
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "user"
+        result = await _select_local_connection(hass, result["flow_id"])
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "local_discover"
 
         # Only the new device (index 1) should be selectable
         # The configured device is filtered out but its index is preserved
@@ -410,10 +428,12 @@ async def test_manual_flow_success(hass: HomeAssistant) -> None:
     }
 
     # First trigger discovery that finds no devices to get to manual step
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    assert result["step_id"] == "user"
     with patch_discovery([]):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}
-        )
+        result = await _select_local_connection(hass, result["flow_id"])
         assert result["step_id"] == "manual"
 
     # Now submit manual entry
@@ -431,11 +451,12 @@ async def test_manual_flow_success(hass: HomeAssistant) -> None:
 async def test_manual_flow_cannot_connect(hass: HomeAssistant) -> None:
     """Test manual entry flow when device cannot be reached."""
     # First trigger discovery that finds no devices to get to manual step
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     with patch_discovery([]):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}
-        )
-        assert result["step_id"] == "manual"
+        result = await _select_local_connection(hass, result["flow_id"])
+    assert result["step_id"] == "manual"
 
     # Submit manual entry that fails to connect
     with patch_manual_connection(error=ConnectionError("cannot connect")):
@@ -460,11 +481,12 @@ async def test_manual_flow_invalid_response(hass: HomeAssistant) -> None:
     }
 
     # First trigger discovery that finds no devices to get to manual step
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     with patch_discovery([]):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}
-        )
-        assert result["step_id"] == "manual"
+        result = await _select_local_connection(hass, result["flow_id"])
+    assert result["step_id"] == "manual"
 
     # Submit manual entry with invalid device info
     with patch_manual_connection(device_info=device_info):
@@ -494,11 +516,12 @@ async def test_manual_flow_already_configured(
     }
 
     # First trigger discovery that finds no devices to get to manual step
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     with patch_discovery([]):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}
-        )
-        assert result["step_id"] == "manual"
+        result = await _select_local_connection(hass, result["flow_id"])
+    assert result["step_id"] == "manual"
 
     # Submit manual entry for already configured device
     with patch_manual_connection(device_info=device_info):
@@ -716,11 +739,12 @@ async def test_reconfigure_flow_cannot_connect(
 async def test_manual_flow_value_error(hass: HomeAssistant) -> None:
     """Test manual entry flow when device returns ValueError (invalid data)."""
     # First trigger discovery that finds no devices to get to manual step
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
     with patch_discovery([]):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}
-        )
-        assert result["step_id"] == "manual"
+        result = await _select_local_connection(hass, result["flow_id"])
+    assert result["step_id"] == "manual"
 
     # Submit manual entry that raises ValueError
     with patch_manual_connection(error=ValueError("Invalid device data")):
@@ -1132,10 +1156,13 @@ async def test_user_flow_connection_error_redirects_to_manual(
     hass: HomeAssistant,
 ) -> None:
     """Test user flow redirects to manual when ConnectionError occurs."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    assert result["step_id"] == "user"
+
     with patch_discovery([], error=ConnectionError("Network unreachable")):
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": "user"}
-        )
+        result = await _select_local_connection(hass, result["flow_id"])
 
     # Should redirect to manual entry with cannot_connect error
     assert result["type"] == FlowResultType.FORM
