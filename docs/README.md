@@ -23,6 +23,7 @@ Verified against `dcc32efe` (2026-01-28).
 
 - [Installation](installation.md)
 - [Configuration](configuration.md)
+- [Relay server](relay.md) *(cross-network / VLAN setup)*
 - [Options](options.md)
 - [Entities](entities.md)
 - [Energy Dashboard](energy_dashboard.md)

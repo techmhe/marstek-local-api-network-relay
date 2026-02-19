@@ -4,6 +4,9 @@ A lightweight HTTP proxy server that enables Home Assistant to control Marstek
 energy storage devices that are on a **different network segment** (e.g., an
 IoT VLAN or a separate LAN).
 
+> For the complete end-to-end setup guide (relay server + Home Assistant
+> integration), see [docs/relay.md](../docs/relay.md).
+
 ## Architecture
 
 ```
