@@ -287,6 +287,78 @@ async def test_relay_entry_setup(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
     assert relay_entry.state.value == "loaded"
+    # Entities should be created - validate a core sensor exists
+    assert any(
+        "battery_level" in eid
+        for eid in hass.states.async_entity_ids("sensor")
+    )
+
+
+async def test_relay_entry_setup_device_offline_still_creates_entities(
+    hass: HomeAssistant,
+) -> None:
+    """Relay entry loads and creates entities even when device is offline.
+
+    The device-level connection check is skipped for relay mode so that
+    a temporarily unreachable Marstek device does not prevent entity
+    creation (ConfigEntryNotReady must not be raised in this scenario).
+    """
+    relay_entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="aa:bb:cc:dd:ee:ff",
+        data={
+            "host": "192.168.10.50",
+            "ble_mac": "AA:BB:CC:DD:EE:FF",
+            "mac": "AA:BB:CC:DD:EE:FF",
+            "device_type": "VenusE 3.0",
+            "version": 111,
+            "wifi_name": "marstek",
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_RELAY,
+            CONF_RELAY_URL: _RELAY_URL,
+        },
+    )
+    relay_entry.add_to_hass(hass)
+
+    # Simulate device offline: get_device_status raises TimeoutError
+    offline_client = create_mock_client(status=TimeoutError("device timeout"))
+    with patch_relay_integration(client=offline_client):
+        assert await hass.config_entries.async_setup(relay_entry.entry_id)
+        await hass.async_block_till_done()
+
+    # Entry must be loaded despite the device being unreachable
+    assert relay_entry.state.value == "loaded"
+    # Core entities (unconditional exists_fn) must be present even with no data
+    assert any(
+        "battery_level" in eid
+        for eid in hass.states.async_entity_ids("sensor")
+    )
+
+
+async def test_relay_manual_entry_setup_without_mac(hass: HomeAssistant) -> None:
+    """Relay-manual entry (no MAC) loads and creates entities using entry_id fallback.
+
+    relay_manual entries are created without a BLE/WiFi MAC address.
+    get_device_identifier must fall back to the config-entry ID so that
+    entity and device registry entries are still created successfully.
+    """
+    relay_entry = MockConfigEntry(
+        domain=DOMAIN,
+        # No unique_id — relay_manual entries are created without one
+        data={
+            "host": "192.168.10.99",
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_RELAY,
+            CONF_RELAY_URL: _RELAY_URL,
+        },
+    )
+    relay_entry.add_to_hass(hass)
+
+    with patch_relay_integration():
+        assert await hass.config_entries.async_setup(relay_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert relay_entry.state.value == "loaded"
+    # At least one sensor must exist (device name defaults to "Device")
+    assert any("battery_level" in eid for eid in hass.states.async_entity_ids("sensor"))
 
 
 # ---------------------------------------------------------------------------

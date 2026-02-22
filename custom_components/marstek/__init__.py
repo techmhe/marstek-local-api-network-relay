@@ -187,6 +187,8 @@ def _build_device_info_dict(
         "wifi_name": entry.data.get("wifi_name", ""),
         "wifi_mac": entry.data.get("wifi_mac", ""),
         "ble_mac": entry.data.get("ble_mac", ""),
+        # Fallback for relay-manual entries that have no MAC address
+        "entry_id": entry.entry_id,
     }
 
 
@@ -287,16 +289,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: MarstekConfigEntry) -> b
         udp_client = await _get_or_create_shared_udp_client(hass)
         active_client = udp_client
 
-    # Try to connect with stored IP (mik-laj feedback)
-    # If we have an IP address in the configuration, we should always connect to that IP
-    # Discovery is handled by Scanner, not here
-    await _async_verify_device_connection(
-        hass,
-        entry,
-        active_client,
-        stored_ip,
-        stored_port,
-    )
+    # For relay mode the relay-server health was already verified in
+    # _create_relay_client above.  Performing an additional device-level
+    # ping through the relay would raise ConfigEntryNotReady whenever the
+    # Marstek device is temporarily offline, which prevents entities from
+    # ever being created.  Skip the check for relay; the coordinator's
+    # first refresh will handle connectivity gracefully.
+    if not is_relay:
+        await _async_verify_device_connection(
+            hass,
+            entry,
+            active_client,
+            stored_ip,
+            stored_port,
+        )
 
     # Use device info from config_entry (saved during config flow)
     device_info_dict = _build_device_info_dict(entry, stored_ip, stored_port)
