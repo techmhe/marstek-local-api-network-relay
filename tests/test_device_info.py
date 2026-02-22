@@ -12,9 +12,23 @@ from custom_components.marstek.device_info import build_device_info, get_device_
 
 
 def test_get_device_identifier_requires_mac() -> None:
-    """Missing MAC data should raise a ValueError."""
+    """Missing MAC data AND no fallback should raise a ValueError."""
     with pytest.raises(ValueError, match="identifier"):
         get_device_identifier({})
+
+
+def test_get_device_identifier_falls_back_to_entry_id() -> None:
+    """entry_id is used as identifier when no MAC is present (relay-manual entries)."""
+    result = get_device_identifier({"entry_id": "abc-123-def"})
+    assert result == "abc-123-def"
+
+
+def test_get_device_identifier_prefers_mac_over_entry_id() -> None:
+    """MAC takes priority over entry_id when both are present."""
+    result = get_device_identifier(
+        {"ble_mac": "AA:BB:CC:DD:EE:FF", "entry_id": "abc-123-def"}
+    )
+    assert result == "aa:bb:cc:dd:ee:ff"
 
 
 def test_binary_sensor_returns_none_when_no_data() -> None:

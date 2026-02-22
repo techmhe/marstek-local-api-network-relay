@@ -11,15 +11,26 @@ from .const import DOMAIN
 
 
 def get_device_identifier(device_info: dict[str, Any]) -> str:
-    """Return a stable device identifier based on MAC addresses."""
+    """Return a stable device identifier based on MAC addresses.
+
+    Falls back to the config-entry ID for relay-manual entries that were
+    configured without device discovery (and therefore have no MAC).
+    """
     device_identifier_raw = (
         device_info.get("ble_mac")
         or device_info.get("mac")
         or device_info.get("wifi_mac")
     )
-    if not device_identifier_raw:
-        raise ValueError("Marstek device identifier (MAC) is required for stable entities")
-    return format_mac(device_identifier_raw)
+    if device_identifier_raw:
+        return format_mac(device_identifier_raw)
+    # Relay-manual entries may not have a MAC address; use the stable
+    # config-entry ID so that entities are still created and persist.
+    fallback = device_info.get("entry_id")
+    if fallback:
+        return str(fallback)
+    raise ValueError(
+        "Marstek device identifier (MAC address or entry ID) is required for stable entities"
+    )
 
 
 def _format_device_type(device_type: str | None) -> str:
